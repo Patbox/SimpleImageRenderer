@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "simple-image-renderer",
+  "version": "${version}",
+  "name": "Simple Image Renderer",
+  "description": "Render item models as a png file!",
+  "authors": [
+    "Patbox"
+  ],
+  "contact": {
+    "homepage": "https://pb4.eu",
+    "sources": "https://github.com/Patbox/SimpleImageRenderer"
+  },
+  "license": "LGPLv3",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "eu.pb4.simpleimagerenderer.ModInit"
+    ]
+  },
+  "mixins": [
+    "imagerenderer.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "fabric-api": "*",
+    "minecraft": "1.21.11",
+    "java": ">=21"
+  }
+}
