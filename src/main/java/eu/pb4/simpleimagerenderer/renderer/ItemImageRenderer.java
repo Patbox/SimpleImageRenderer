@@ -25,6 +25,7 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
         var poseStack = new PoseStack();
         poseStack.pushPose();
         poseStack.translate(width / 2.0, width / 2.0, 0);
+        this.multiplyPoseStack(poseStack);
         poseStack.scale(width, -width, width);
         if (preview) {
             var stack = this.stacks.get((int) ((System.currentTimeMillis() / 500) % this.stacks.size()));

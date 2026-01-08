@@ -3,6 +3,7 @@ package eu.pb4.simpleimagerenderer.renderer;
 import com.mojang.blaze3d.ProjectionType;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
@@ -20,6 +21,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected int height;
     protected int width;
+    protected Matrix4f matrix = new Matrix4f();
+    private boolean multiplyNormals = true;
 
 
     public int width() {
@@ -28,6 +31,14 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public int height() {
         return height;
+    }
+
+    public boolean multiplyNormals() {
+        return multiplyNormals;
+    }
+
+    public void setMultiplyNormals(boolean multiplyNormals) {
+        this.multiplyNormals = multiplyNormals;
     }
 
     public AbstractImageRenderer(Minecraft minecraft, int width, int height) {
@@ -82,5 +93,17 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     public void close() {
         this.perspectiveBuffer.close();
         this.renderTarget.destroyBuffers();
+    }
+
+    public void updateMatrix(Matrix4f matrix4f) {
+        this.matrix = matrix4f;
+    }
+
+    protected void multiplyPoseStack(PoseStack poseStack) {
+        if (this.multiplyNormals) {
+            poseStack.mulPose(this.matrix);
+        } else {
+            poseStack.last().pose().mul(this.matrix);
+        }
     }
 }

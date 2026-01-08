@@ -25,13 +25,20 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
         minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.ENTITY_IN_UI);
         var poseStack = new PoseStack();
         poseStack.pushPose();
-        poseStack.translate(width / 2.0, width / 1.1f, 0);
+        poseStack.translate(width / 2.0, width / 2f, 0);
+        this.multiplyPoseStack(poseStack);
+        poseStack.translate(0, width / 1.1f - width / 2f, 0);
+
         poseStack.scale(width, -width, width);
         var maxDim = 1 / (Math.max(entity.getBbHeight(), entity.getBbWidth()) + 0.5f);
         poseStack.scale(maxDim, maxDim, maxDim);
 
         var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
-        //state.lightCoords = 16;
+        state.lightCoords = 15728880;
+        state.shadowPieces.clear();
+        state.ageInTicks = 0;
+        state.outlineColor = 0;
+
         if (state instanceof LivingEntityRenderState livingEntityRenderState) {
             livingEntityRenderState.bodyRot = 0;
             livingEntityRenderState.yRot = 0;
