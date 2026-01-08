@@ -4,10 +4,11 @@
   "package": "eu.pb4.simpleimagerenderer.mixin",
   "compatibilityLevel": "JAVA_16",
   "mixins": [
-
+    "ClientLevelAccessor",
+    "EntitySelectorAccessor",
+    "GuiGraphicsAccessor"
   ],
   "client": [
-
   ],
   "injectors": {
     "defaultRequire": 0
