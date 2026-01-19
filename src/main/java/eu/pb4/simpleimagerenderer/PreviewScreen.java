@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.AddressMode;
 import com.mojang.blaze3d.textures.FilterMode;
+import eu.pb4.simpleimagerenderer.mixin.EditBoxAccessor;
 import eu.pb4.simpleimagerenderer.mixin.GuiGraphicsAccessor;
 import eu.pb4.simpleimagerenderer.renderer.*;
 import net.minecraft.client.Minecraft;
@@ -21,6 +22,7 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.util.Mth;
+import net.minecraft.util.StringUtil;
 import net.minecraft.world.item.ItemDisplayContext;
 
 import java.math.RoundingMode;
@@ -242,6 +244,14 @@ public class PreviewScreen<T> extends Screen {
             );
 
             list.accept(group);
+
+            list.accept(CycleButton.<AbstractImageRenderer.LightmapType>builder(x -> Component.literal(x.name()), this.renderer::lightmapType)
+                    .withValues(AbstractImageRenderer.LightmapType.values())
+                    .create(0, 0, 120, 20, button("lightmap"), (btn, val) -> {
+                        this.renderer.setLightmapType(val);
+                        settings.lightmapType = val;
+                    })
+            );
         }
 
         if (this.renderer instanceof ItemImageRenderer itemImageRenderer) {
@@ -428,11 +438,43 @@ public class PreviewScreen<T> extends Screen {
     private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max, int defaultVal,
                                      ToIntFunction<String> parser, IntFunction<String> textBoxString) {
         var size = new EditBox(this.font, width, 20, name) {
+            private Predicate<String> filter;
+
             @Override
             public void setFocused(boolean bl) {
                 super.setFocused(bl);
                 if (!bl) {
                     this.setValue(textBoxString.apply(supplier.getAsInt()));
+                }
+            }
+
+            @Override
+            public void insertText(String input) {
+                var highlightPos = ((EditBoxAccessor) (Object) this).sim_getHighlightPos();
+                var maxLength = ((EditBoxAccessor) (Object) this).sim_getMaxLength();
+                int start = Math.min(this.getCursorPosition(), highlightPos);
+                int end = Math.max(this.getCursorPosition(), highlightPos);
+                int maxInsertionLength = maxLength - this.getValue().length() - (start - end);
+                if (maxInsertionLength > 0) {
+                    String text = StringUtil.filterText(input);
+                    int insertionLength = text.length();
+                    if (maxInsertionLength < insertionLength) {
+                        if (Character.isHighSurrogate(text.charAt(maxInsertionLength - 1))) {
+                            --maxInsertionLength;
+                        }
+
+                        text = text.substring(0, maxInsertionLength);
+                        insertionLength = maxInsertionLength;
+                    }
+
+                    var newValue = (new StringBuilder(this.getValue())).replace(start, end, text).toString();
+
+                    if (this.filter.test(newValue)) {
+                        ((EditBoxAccessor) (Object) this).sim_setValue(newValue);
+                        this.setCursorPosition(start + insertionLength);
+                        this.setHighlightPos(this.getCursorPosition());
+                        ((EditBoxAccessor) (Object) this).sim_onValueChange(this.getValue());
+                    }
                 }
             }
         };
@@ -455,8 +497,7 @@ public class PreviewScreen<T> extends Screen {
             }
 
         });
-
-        size.setFilter((input) -> {
+        size.filter = (input) -> {
             if (input.isEmpty()) {
                 return true;
             }
@@ -472,7 +513,7 @@ public class PreviewScreen<T> extends Screen {
             }
 
             return false;
-        });
+        };
 
         size.setValue(textBoxString.apply(Mth.clamp(supplier.getAsInt(), min, max)));
         return size;
@@ -507,8 +548,8 @@ public class PreviewScreen<T> extends Screen {
             }
 
         });
-
-        size.setFilter((input) -> {
+// Todo
+        /*size.setFilter((input) -> {
             if (input.isEmpty()) {
                 return true;
             }
@@ -524,7 +565,7 @@ public class PreviewScreen<T> extends Screen {
             }
 
             return false;
-        });
+        });*/
 
         size.setValue(rounder.apply(supplier.getAsDouble()));
         return size;

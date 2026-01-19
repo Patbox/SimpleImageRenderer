@@ -58,7 +58,7 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
         minecraft.getItemModelResolver().updateForTopItem(state, stack, this.displayContext, null, null, 0);
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT));
         //minecraft.options.glintSpeed()
-        state.submit(poseStack, this.renderDispatcher.getSubmitNodeStorage(), 15728880, OverlayTexture.NO_OVERLAY, 0);
+        state.submit(poseStack, this.renderDispatcher.getSubmitNodeStorage(), 0, OverlayTexture.NO_OVERLAY, 0);
 
         this.renderDispatcher.renderAllFeatures();
         this.renderDispatcher.endFrame();

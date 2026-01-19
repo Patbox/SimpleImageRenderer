@@ -15,6 +15,7 @@
   "button.simple_image_renderer.z": "Z",
   "button.simple_image_renderer.rotate_light": "Rotate Light",
   "button.simple_image_renderer.lighting": "Lighting",
+  "button.simple_image_renderer.lightmap": "Lightmap",
   "button.simple_image_renderer.item_display_context": "Item Display Context",
   "button.simple_image_renderer.entity_age": "Entity Age",
   "button.simple_image_renderer.walking_pos": "Walking Pos",

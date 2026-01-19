@@ -50,7 +50,7 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
         poseStack.scale(width, -width, width);
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ITEMS_3D));
 
-        this.renderDispatcher.getSubmitNodeStorage().submitBlock(poseStack,  this.state, 15728880, OverlayTexture.NO_OVERLAY,  0);
+        this.renderDispatcher.getSubmitNodeStorage().submitBlock(poseStack,  this.state, 0, OverlayTexture.NO_OVERLAY,  0);
 
         this.renderDispatcher.renderAllFeatures();
         this.renderDispatcher.endFrame();

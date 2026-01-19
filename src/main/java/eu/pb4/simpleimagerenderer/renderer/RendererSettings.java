@@ -18,6 +18,7 @@ public class RendererSettings implements Cloneable {
 
     public AbstractImageRenderer.LightingType lightingType = AbstractImageRenderer.LightingType.DEFAULT;
     public boolean multiplyNormals = true;
+    public AbstractImageRenderer.LightmapType lightmapType = AbstractImageRenderer.LightmapType.DEFAULT;
 
     // Entity
     public double age = -1;
@@ -48,6 +49,7 @@ public class RendererSettings implements Cloneable {
         renderer.setupTexture(width, height);
         renderer.setLightingType(this.lightingType);
         renderer.setMultiplyNormals(this.multiplyNormals);
+        renderer.setLightmapType(this.lightmapType);
 
         if (renderer instanceof ItemImageRenderer renderer1) {
             renderer1.setDisplayContext(this.context);

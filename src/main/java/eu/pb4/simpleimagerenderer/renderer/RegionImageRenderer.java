@@ -71,6 +71,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
     public RegionImageRenderer(Minecraft minecraft, int width, int height, ClientLevel level, BlockBox area) {
         super(minecraft, width, height);
+        this.useUiLightmapByDefault = false;
         this.area = area;
 
         {
@@ -164,6 +165,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, Void> targetConsumer, boolean preview) {
+        var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
         var center = area.aabb().getCenter();
 
         var poseStack = new PoseStack();
@@ -209,8 +211,13 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         for (var state : this.blockEntities) {
             poseStack.pushPose();
             poseStack.translate(state.blockPos.getX() - center.x, state.blockPos.getY() - center.y, state.blockPos.getZ() - center.z);
+            var l = state.lightCoords;
+            if (uiLightmap) {
+                state.lightCoords = 0;
+            }
             this.minecraft.getBlockEntityRenderDispatcher().submit(state, poseStack,
                     this.renderDispatcher.getSubmitNodeStorage(), new CameraRenderState());
+            state.lightCoords = l;
             poseStack.popPose();
         }
         this.renderDispatcher.renderAllFeatures();
@@ -226,8 +233,13 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                 if (!this.renderNametags) {
                     state.nameTag = null;
                 }
+                var l = state.lightCoords;
+                if (uiLightmap) {
+                    state.lightCoords = 0;
+                }
                 minecraft.getEntityRenderDispatcher().submit(state, cameraState, 0, 0, 0, poseStack, this.renderDispatcher.getSubmitNodeStorage());
                 state.nameTag = nameTag;
+                state.lightCoords = l;
                 poseStack.popPose();
             }
             this.renderDispatcher.renderAllFeatures();
@@ -246,7 +258,6 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         this.renderDispatcher.renderAllFeatures();
 
         renderGroup(render, ChunkSectionLayerGroup.TRANSLUCENT, this.chunkLayerSampler);
-        renderGroup(render, ChunkSectionLayerGroup.TRIPWIRE, this.chunkLayerSampler);
 
         this.renderDispatcher.renderAllFeatures();
         this.renderDispatcher.endFrame();
@@ -328,7 +339,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                         OptionalDouble.empty()
                 )) {
             RenderSystem.bindDefaultUniforms(renderPass);
-            renderPass.bindTexture("Sampler2", minecraft.gameRenderer.lightTexture().getTextureView(), RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+            renderPass.bindTexture("Sampler2", minecraft.gameRenderer.lightmap(), RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
 
             for (ChunkSectionLayer chunkSectionLayer : chunkSectionLayers) {
                 List<RenderPass.Draw<GpuBufferSlice[]>> list = sectionsToRender.drawsPerLayer().get(chunkSectionLayer);

@@ -9,13 +9,10 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
-import eu.pb4.polymer.core.impl.client.InternalClientItemGroup;
-import eu.pb4.polymer.core.impl.client.InternalClientRegistry;
 import eu.pb4.simpleimagerenderer.renderer.*;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -54,8 +51,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
-import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
+
 
 public class ModInit implements ClientModInitializer {
     public static final Logger LOGGER = LogManager.getLogger("SimpleImageRenderer");
@@ -113,9 +111,9 @@ public class ModInit implements ClientModInitializer {
 
         var tab = BuiltInRegistries.CREATIVE_MODE_TAB.getValue(identifier);
 
-        if (POLYMER && tab == null) {
-            tab = InternalClientRegistry.ITEM_GROUPS.get(identifier);
-        }
+        //if (POLYMER && tab == null) {
+        //    tab = InternalClientRegistry.ITEM_GROUPS.get(identifier);
+        //}
 
         if (tab != null) {
             if (!tab.hasAnyItems()) {
@@ -132,12 +130,12 @@ public class ModInit implements ClientModInitializer {
     private static CompletableFuture<Suggestions> suggestCreativeTabs(CommandContext<FabricClientCommandSource> ctx, SuggestionsBuilder b) {
         var ids = new ArrayList<Identifier>();
         for (var x : CreativeModeTabs.allTabs()) {
-            if (POLYMER) {
-                if (x instanceof InternalClientItemGroup ex) {
-                    ids.add(ex.getIdentifier());
-                    continue;
-                }
-            }
+            //if (POLYMER) {
+            //    if (x instanceof InternalClientItemGroup ex) {
+            //        ids.add(ex.getIdentifier());
+            //        continue;
+            //    }
+            //}
             ids.add(BuiltInRegistries.CREATIVE_MODE_TAB.getKey(x));
         }
 
@@ -187,7 +185,7 @@ public class ModInit implements ClientModInitializer {
         var start = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("start", Coordinates.class)));
         var end = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("end", Coordinates.class)));
 
-        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, ctx.getSource().getWorld(), BlockBox.of(start, end));
+        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, ctx.getSource().getLevel(), BlockBox.of(start, end));
         openRendererScreen(renderer, (textureTarget, entityx) -> {
             try {
                 var name = "area_" + Util.getFilenameFormattedDateTime();

@@ -1,13 +1,12 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.ProjectionType;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.terraformersmc.modmenu.util.mod.Mod;
 import eu.pb4.simpleimagerenderer.ModInit;
+import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
@@ -32,6 +31,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     private boolean multiplyNormals = true;
     protected LightingType lightingType = LightingType.DEFAULT;
     protected long glintTime = 0;
+    protected LightmapType lightmapType = LightmapType.DEFAULT;
+    protected boolean useUiLightmapByDefault = true;
 
     public int width() {
         return width;
@@ -68,12 +69,19 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
         RenderSystem.backupProjectionMatrix();
         RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.ORTHOGRAPHIC);
+
+        var oldLightmap = ((GameRendererAccessor) this.minecraft.gameRenderer).isUseUiLightmap();
+        ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(this.lightmapType.useUiLightmap(this.useUiLightmapByDefault));
+
         try {
             this.clearBuffer();
             this.renderInner(targetConsumer, preview);
         } catch (Throwable e) {
             e.printStackTrace();
         }
+
+        ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(oldLightmap);
+
         RenderSystem.restoreProjectionMatrix();
 
         RenderSystem.getModelViewMatrix().set(oldModelViewMatrix);
@@ -137,6 +145,14 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.lightingType = lightingType;
     }
 
+    public LightmapType lightmapType() {
+        return lightmapType;
+    }
+
+    public void setLightmapType(LightmapType lightmapType) {
+        this.lightmapType = lightmapType;
+    }
+
     public long glintTime() {
         return glintTime;
     }
@@ -162,6 +178,20 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
         public Lighting.Entry getEntry(Lighting.Entry defaulted) {
             return this.entry == null ? defaulted : this.entry;
+        }
+    }
+
+    public enum LightmapType {
+        DEFAULT,
+        LEVEL,
+        UI;
+
+        public boolean useUiLightmap(boolean defaultValue) {
+            return switch (this) {
+                case DEFAULT -> defaultValue;
+                case UI -> true;
+                case LEVEL -> false;
+            };
         }
     }
 

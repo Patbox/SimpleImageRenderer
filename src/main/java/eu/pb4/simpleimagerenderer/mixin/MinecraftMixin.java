@@ -1,10 +1,8 @@
 package eu.pb4.simpleimagerenderer.mixin;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.terraformersmc.modmenu.util.mod.Mod;
 import eu.pb4.simpleimagerenderer.ModInit;
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.vehicle.minecart.Minecart;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;

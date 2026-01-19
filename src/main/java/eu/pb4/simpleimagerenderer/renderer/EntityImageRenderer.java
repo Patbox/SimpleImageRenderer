@@ -27,6 +27,7 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, Entity> targetConsumer, boolean preview) {
+        var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI));
         var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
 
@@ -39,12 +40,14 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
         var maxDim = 1 / (Math.max(state.boundingBoxHeight, state.boundingBoxWidth) + 0.5f);
         poseStack.scale(maxDim, maxDim, maxDim);
 
-        state.lightCoords = 15728880;
         state.shadowPieces.clear();
         if (this.age >= 0) {
             state.ageInTicks = this.age;
         }
         state.outlineColor = 0;
+        if (uiLightmap) {
+            state.lightCoords = 0;
+        }
 
         if (state instanceof LivingEntityRenderState livingEntityRenderState) {
             livingEntityRenderState.bodyRot = 0;

@@ -1,4 +1,4 @@
-classTweaker v1 named
+classTweaker v1 official
 
 accessible class net/minecraft/client/renderer/chunk/SectionCopy
 accessible method net/minecraft/client/renderer/chunk/SectionCopy <init> (Lnet/minecraft/world/level/chunk/LevelChunk;I)V

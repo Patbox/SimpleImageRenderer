@@ -27,10 +27,10 @@ public class ClientEntityUtils {
         var self = (EntitySelectorAccessor) selector;
 
         if (self.getPlayerName() != null) {
-            var result = sender.getWorld().players().stream().filter(x -> x.nameAndId().name().equals(self.getPlayerName())).findAny().orElse(null);
+            var result = sender.getLevel().players().stream().filter(x -> x.nameAndId().name().equals(self.getPlayerName())).findAny().orElse(null);
             return result == null ? List.of() : List.of(result);
         } else if (self.getEntityUUID() != null) {
-            Entity entity = sender.getWorld().getEntity(self.getEntityUUID());
+            Entity entity = sender.getLevel().getEntity(self.getEntityUUID());
             if (entity != null) {
                 if (entity.getType().isEnabled(sender.enabledFeatures())) {
                     return List.of(entity);
@@ -47,7 +47,7 @@ public class ClientEntityUtils {
             } else {
                 Predicate<Entity> predicate = self.callGetPredicate(pos, absoluteAabb, sender.enabledFeatures());
                 List<Entity> result = new ObjectArrayList();
-                addEntities(self, result, sender.getWorld(), absoluteAabb, predicate);
+                addEntities(self, result, sender.getLevel(), absoluteAabb, predicate);
 
                 return self.callSortAndLimit(pos, result);
             }

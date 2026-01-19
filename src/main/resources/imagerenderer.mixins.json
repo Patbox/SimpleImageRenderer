@@ -6,7 +6,9 @@
   "mixins": [
     "CameraAccessor",
     "ClientLevelAccessor",
+    "EditBoxAccessor",
     "EntitySelectorAccessor",
+    "GameRendererAccessor",
     "GuiGraphicsAccessor",
     "MinecraftMixin",
     "ParticleEngineAccessor"
