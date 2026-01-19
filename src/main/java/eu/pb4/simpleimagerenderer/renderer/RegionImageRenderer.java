@@ -29,6 +29,7 @@ import net.minecraft.client.TextureFilteringMethod;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.chunk.*;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.LevelRenderState;
 import net.minecraft.client.renderer.state.ParticlesRenderState;
@@ -339,9 +340,42 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     MultiBufferSource.BufferSource bufferSource = this.renderBuffers.bufferSource();
                     MultiBufferSource.BufferSource bufferSource2 = this.renderBuffers.crumblingBufferSource();
 
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
+                    if (this.renderEntities) {
+                        AvatarRenderState selfState = null;
+                        List<Component> nameTags = this.renderNametags ? null : new ArrayList<>(levelRenderState.entityRenderStates.size());
 
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
+                        if (!this.renderSelf || !this.renderNametags) {
+                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
+                                var state = levelRenderState.entityRenderStates.get(i);
+                                if (!this.renderSelf && state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == this.minecraft.player.getId()) {
+                                    selfState = avatarRenderState;
+                                    levelRenderState.entityRenderStates.remove(i);
+                                    if (this.renderNametags) {
+                                        break;
+                                    } else {
+                                        continue;
+                                    }
+                                }
+                                if (!this.renderNametags) {
+                                    assert nameTags != null;
+                                    nameTags.add(state.nameTag);
+                                    state.nameTag = null;
+                                }
+                            }
+                        }
+
+                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
+
+                        if (nameTags != null) {
+                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
+                                levelRenderState.entityRenderStates.get(i).nameTag = nameTags.get(i);
+                            }
+                        }
+
+                        if (selfState != null) {
+                            levelRenderState.entityRenderStates.add(selfState);
+                        }
+                    }
 
                     this.featureRenderDispatcher.renderAllFeatures();
                     bufferSource.endLastBatch();
