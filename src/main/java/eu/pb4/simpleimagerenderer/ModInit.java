@@ -7,7 +7,6 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -17,34 +16,37 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import eu.pb4.polymer.core.impl.client.InternalClientItemGroup;
 import eu.pb4.polymer.core.impl.client.InternalClientRegistry;
-import eu.pb4.simpleimagerenderer.renderer.AbstractImageRenderer;
-import eu.pb4.simpleimagerenderer.renderer.EntityImageRenderer;
-import eu.pb4.simpleimagerenderer.renderer.ItemImageRenderer;
+import eu.pb4.simpleimagerenderer.renderer.*;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.IdentifierArgument;
+import net.minecraft.commands.arguments.blocks.BlockInput;
+import net.minecraft.commands.arguments.blocks.BlockStateArgument;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.commands.arguments.selector.EntitySelector;
+import net.minecraft.core.BlockBox;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Util;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.ItemStack;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,10 +61,12 @@ public class ModInit implements ClientModInitializer {
     public static final Logger LOGGER = LogManager.getLogger("SimpleImageRenderer");
     public static final String ID = "simple-image-renderer";
     private static final boolean POLYMER = FabricLoader.getInstance().isModLoaded("polymer-core");
-    private static final Path MAIN_PATH = FabricLoader.getInstance().getGameDir().relativize(FabricLoader.getInstance().getGameDir()).resolve("simple-image-renderer");
+    public static final Path MAIN_PATH = FabricLoader.getInstance().getGameDir().relativize(FabricLoader.getInstance().getGameDir()).resolve("simple-image-renderer");
+    public static long glintTimeOverride = -1;
+    @Nullable
+    public static RenderTarget mainRenderTargetReplacement;
     private static boolean useIdAsName = false;
-    private static int imageWidth = 64;
-    private static boolean enablePreview = true;
+    public static RendererSettings settings = new RendererSettings();
 
     private static void registerCommands(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandBuildContext bctx) {
         dispatcher.register(literal("render")
@@ -77,32 +81,36 @@ public class ModInit implements ClientModInitializer {
                         ))
                 )
                 .then(literal("entity").then(argument("entity", EntityArgument.entity()).executes(ModInit::renderEntity)))
-                .then(literal("size").then(argument("size", IntegerArgumentType.integer(16)).executes(ModInit::setWidth)))
+                .then(literal("block").then(argument("state", BlockStateArgument.block(bctx)).executes(ModInit::renderBlockState)))
+                .then(literal("area").then(argument("start", BlockPosArgument.blockPos())
+                                .then(argument("end", BlockPosArgument.blockPos()).executes(ModInit::renderArea))))
                 .then(literal("use_id_as_name").then(argument("value", BoolArgumentType.bool()).executes(ModInit::setUseIdAsName)))
-                .then(literal("enable_preview").then(argument("value", BoolArgumentType.bool()).executes(ModInit::enablePreview)))
+                .then(literal("open_folder").executes(ModInit::openFolder))
         );
     }
 
-    private static int enablePreview(CommandContext<FabricClientCommandSource> ctx) {
-        enablePreview = BoolArgumentType.getBool(ctx, "value");
-        ctx.getSource().sendFeedback(Component.literal(enablePreview ? "Preview is now enabled." : "Preview is now disabled."));
+    private static int openFolder(CommandContext<FabricClientCommandSource> ctx) {
+        Util.getPlatform().openPath(MAIN_PATH);
         return 1;
     }
 
     private static int setUseIdAsName(CommandContext<FabricClientCommandSource> ctx) {
         useIdAsName = BoolArgumentType.getBool(ctx, "value");
-        ctx.getSource().sendFeedback(Component.literal(useIdAsName ? "Images will be now saved using their id as a filename." : "Images will be now saved using their item name as a filename."));
-        return 1;
-    }
-
-    private static int setWidth(CommandContext<FabricClientCommandSource> ctx) {
-        imageWidth = IntegerArgumentType.getInteger(ctx, "size");
-        ctx.getSource().sendFeedback(Component.literal("Image dimensions are set to " + imageWidth + "x" + imageWidth));
-
+        ctx.getSource().sendFeedback(Component.translatable("text.simple_image_renderer.filename_use_" + (useIdAsName ? "id" : "display_name")));
         return 1;
     }
 
     private static ItemStack[] getCreativeTabsItems(Identifier identifier) {
+        if (identifier.equals(CreativeModeTabs.INVENTORY.identifier())) {
+            var list = new ArrayList<ItemStack>();
+            for (var item : Minecraft.getInstance().player.getInventory()) {
+                if (!item.isEmpty()) {
+                    list.add(item);
+                }
+            }
+            return list.toArray(ItemStack[]::new);
+        }
+
         var tab = BuiltInRegistries.CREATIVE_MODE_TAB.getValue(identifier);
 
         if (POLYMER && tab == null) {
@@ -110,8 +118,14 @@ public class ModInit implements ClientModInitializer {
         }
 
         if (tab != null) {
+            if (!tab.hasAnyItems()) {
+                var level = Minecraft.getInstance().level;
+                CreativeModeTabs.tryRebuildTabContents(level.enabledFeatures(), false, level.registryAccess());
+            }
+
             return tab.getDisplayItems().toArray(ItemStack[]::new);
         }
+
         return new ItemStack[0];
     }
 
@@ -132,14 +146,13 @@ public class ModInit implements ClientModInitializer {
 
     private static int renderEntity(CommandContext<FabricClientCommandSource> ctx) throws CommandSyntaxException {
         var entity = ClientEntityUtils.findEntities(ctx.getSource(), ctx.getArgument("entity", EntitySelector.class)).getFirst();
-
-        var renderer = new EntityImageRenderer(ctx.getSource().getClient(), imageWidth, imageWidth, entity);
-        renderOrPreview(renderer, (textureTarget, entityx) -> {
+        var renderer = new EntityImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, entity);
+        openRendererScreen(renderer, (textureTarget, entityx) -> {
             try {
                 var itemName = entity.getDisplayName().getString();
                 var name = useIdAsName ? BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toDebugFileName() : itemName;
                 var path = MAIN_PATH.resolve(name + ".png");
-                writeFile(textureTarget, MAIN_PATH.resolve(name + ".png"));
+                writeToImage(textureTarget, x -> x.writeToFile(path));
                 ctx.getSource().sendFeedback(Component.literal("Saved " + itemName + " as ").append(Component.literal(path.toString())
                         .setStyle(Style.EMPTY.withUnderlined(true).withClickEvent(new ClickEvent.OpenFile(path)))));
             } catch (Throwable e) {
@@ -150,27 +163,64 @@ public class ModInit implements ClientModInitializer {
         return 0;
     }
 
-    private static <T> void renderOrPreview(AbstractImageRenderer<T> renderer, BiConsumer<TextureTarget, T> consumer) {
-        if (enablePreview) {
-            Minecraft.getInstance().execute(() -> {
-                Minecraft.getInstance().setScreen(new PreviewScreen<>(renderer, consumer));
-            });
-        } else {
-            renderer.render(consumer, false);
-            renderer.close();
-        }
+    private static int renderBlockState(CommandContext<FabricClientCommandSource> ctx) throws CommandSyntaxException {
+        var state = ctx.getArgument("state", BlockInput.class).getState();
+
+        var renderer = new BlockImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, state);
+        openRendererScreen(renderer, (textureTarget, entityx) -> {
+            try {
+                var itemName = state.getBlock().getName().getString();
+                var name = useIdAsName ? BuiltInRegistries.BLOCK.getKey(state.getBlock()).toDebugFileName() : itemName;
+                var path = MAIN_PATH.resolve(name + ".png");
+                writeToImage(textureTarget, x -> x.writeToFile(path));
+                ctx.getSource().sendFeedback(Component.literal("Saved " + itemName + " as ").append(Component.literal(path.toString())
+                        .setStyle(Style.EMPTY.withUnderlined(true).withClickEvent(new ClickEvent.OpenFile(path)))));
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+        });
+
+        return 0;
+    }
+
+    private static int renderArea(CommandContext<FabricClientCommandSource> ctx) {
+        var start = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("start", Coordinates.class)));
+        var end = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("end", Coordinates.class)));
+
+        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, ctx.getSource().getWorld(), BlockBox.of(start, end));
+        openRendererScreen(renderer, (textureTarget, entityx) -> {
+            try {
+                var name = "area_" + Util.getFilenameFormattedDateTime();
+                var path = MAIN_PATH.resolve(name + ".png");
+                writeToImage(textureTarget, x -> x.writeToFile(path));
+                ctx.getSource().sendFeedback(Component.translatable("text.simple_image_renderer.saved_image_region",
+                        Component.translatable("text.simple_image_renderer.region", start.toShortString(), end.toShortString()), Component.literal(path.toString())
+                        .setStyle(Style.EMPTY.withUnderlined(true).withClickEvent(new ClickEvent.OpenFile(path)))));
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+        });
+
+        return 0;
+    }
+
+    private static <T> void openRendererScreen(AbstractImageRenderer<T> renderer, BiConsumer<TextureTarget, T> consumer) {
+        settings.applyAll(renderer);
+        Minecraft.getInstance().execute(() -> {
+            Minecraft.getInstance().setScreen(new PreviewScreen<>(renderer, settings.clone(), consumer));
+        });
     }
 
     private static int renderItems(CommandContext<FabricClientCommandSource> ctx, ItemStack... items) {
-        var renderer = new ItemImageRenderer(ctx.getSource().getClient(), imageWidth, List.of(items));
+        var renderer = new ItemImageRenderer(ctx.getSource().getClient(), settings.width, settings.height, List.of(items));
 
-        renderOrPreview(renderer, (textureTarget, itemStack) -> {
+        openRendererScreen(renderer, (textureTarget, itemStack) -> {
             try {
                 var itemName = itemStack.getHoverName().getString();
                 var name = useIdAsName ? itemStack.getOrDefault(DataComponents.ITEM_MODEL, BuiltInRegistries.ITEM.getKey(itemStack.getItem())).toDebugFileName() : itemName;
                 var path = MAIN_PATH.resolve(name + ".png");
-                writeFile(textureTarget, path);
-                ctx.getSource().sendFeedback(Component.literal("Saved " + itemName + " as ").append(Component.literal(path.toString())
+                writeToImage(textureTarget, x -> x.writeToFile(path));
+                ctx.getSource().sendFeedback(Component.translatable("text.simple_image_renderer.saved_image", itemName, Component.literal(path.toString())
                         .setStyle(Style.EMPTY.withUnderlined(true).withClickEvent(new ClickEvent.OpenFile(path)))));
             } catch (Throwable e) {
                 e.printStackTrace();
@@ -180,7 +230,7 @@ public class ModInit implements ClientModInitializer {
         return 0;
     }
 
-    public static void writeFile(final RenderTarget target, Path path) {
+    public static void writeToImage(final RenderTarget target, ThrowingConsumer<NativeImage> imageConsumer) {
         int width = target.width;
         int height = target.height;
         GpuTexture sourceTexture = target.getColorTexture();
@@ -206,16 +256,20 @@ public class ModInit implements ClientModInitializer {
                                         }
                                     }
 
-                                    image.writeToFile(path);
-                                } catch (IOException e) {
-                                    throw new RuntimeException(e);
+                                    imageConsumer.accept(image);
+                                } catch (Throwable e) {
+                                    LOGGER.error("Image handling failer", e);
+                                } finally {
+                                    buffer.close();
                                 }
-
-                                buffer.close();
                             },
                             0
                     );
         }
+    }
+
+    public interface ThrowingConsumer<T> {
+        void accept(T value) throws Throwable;
     }
 
     @Override

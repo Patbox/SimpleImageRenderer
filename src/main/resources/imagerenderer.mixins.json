@@ -4,11 +4,15 @@
   "package": "eu.pb4.simpleimagerenderer.mixin",
   "compatibilityLevel": "JAVA_16",
   "mixins": [
+    "CameraAccessor",
     "ClientLevelAccessor",
     "EntitySelectorAccessor",
-    "GuiGraphicsAccessor"
+    "GuiGraphicsAccessor",
+    "MinecraftMixin",
+    "ParticleEngineAccessor"
   ],
   "client": [
+    "TextureTransformMixin"
   ],
   "injectors": {
     "defaultRequire": 0

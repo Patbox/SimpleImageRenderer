@@ -3,7 +3,7 @@
   "id": "simple-image-renderer",
   "version": "${version}",
   "name": "Simple Image Renderer",
-  "description": "Render item models as a png file!",
+  "description": "Render items, blocks and entities with an orthographic view!",
   "authors": [
     "Patbox"
   ],
@@ -11,6 +11,7 @@
     "homepage": "https://pb4.eu",
     "sources": "https://github.com/Patbox/SimpleImageRenderer"
   },
+  "icon": "assets/simpleimagerenderer/logo.png",
   "license": "LGPLv3",
   "environment": "client",
   "entrypoints": {
@@ -21,6 +22,7 @@
   "mixins": [
     "imagerenderer.mixins.json"
   ],
+  "accessWidener": "simpleimagerenderer.classtweaker",
   "depends": {
     "fabricloader": ">=0.18.0",
     "fabric-api": "*",

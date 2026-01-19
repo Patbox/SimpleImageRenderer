@@ -6,6 +6,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.item.TrackingItemStackRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 
@@ -14,17 +15,27 @@ import java.util.function.BiConsumer;
 
 public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
     private final List<ItemStack> stacks;
+    private ItemDisplayContext displayContext = ItemDisplayContext.GUI;
 
-    public ItemImageRenderer(Minecraft minecraft, int width, List<ItemStack> stacks) {
-        super(minecraft, width, width);
-        this.stacks = stacks;
+    public ItemImageRenderer(Minecraft minecraft, int width, int height, List<ItemStack> stacks) {
+        super(minecraft, width, height);
+        this.stacks = stacks.isEmpty() ? List.of(ItemStack.EMPTY) : stacks;
+    }
+
+    @Override
+    public boolean isSingleRender() {
+        return this.stacks.size() < 2;
+    }
+
+    @Override
+    public Component getTitle() {
+        return this.stacks.size() == 1 ? this.stacks.getFirst().getDisplayName() : Component.translatable("text.simple_image_renderer.and_more", this.stacks.getFirst().getDisplayName(), this.stacks.size() - 1);
     }
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, ItemStack> targetConsumer, boolean preview) {
         var poseStack = new PoseStack();
         poseStack.pushPose();
-        poseStack.translate(width / 2.0, width / 2.0, 0);
         this.multiplyPoseStack(poseStack);
         poseStack.scale(width, -width, width);
         if (preview) {
@@ -44,13 +55,21 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
 
     protected void renderSingleItem(PoseStack poseStack, ItemStack stack) {
         var state = new TrackingItemStackRenderState();
-        minecraft.getItemModelResolver().updateForTopItem(state, stack, ItemDisplayContext.GUI, null, null, 0);
-        minecraft.gameRenderer.getLighting().setupFor(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT);
-
+        minecraft.getItemModelResolver().updateForTopItem(state, stack, this.displayContext, null, null, 0);
+        minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT));
+        //minecraft.options.glintSpeed()
         state.submit(poseStack, this.renderDispatcher.getSubmitNodeStorage(), 15728880, OverlayTexture.NO_OVERLAY, 0);
 
         this.renderDispatcher.renderAllFeatures();
         this.renderDispatcher.endFrame();
         bufferSource.endBatch();
+    }
+
+    public ItemDisplayContext displayContext() {
+        return displayContext;
+    }
+
+    public void setDisplayContext(ItemDisplayContext displayContext) {
+        this.displayContext = displayContext;
     }
 }

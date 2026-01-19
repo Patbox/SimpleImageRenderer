@@ -6,10 +6,16 @@ import eu.pb4.simpleimagerenderer.mixin.EntitySelectorAccessor;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.commands.arguments.coordinates.Coordinates;
+import net.minecraft.commands.arguments.coordinates.LocalCoordinates;
+import net.minecraft.commands.arguments.coordinates.WorldCoordinate;
+import net.minecraft.commands.arguments.coordinates.WorldCoordinates;
 import net.minecraft.commands.arguments.selector.EntitySelector;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.AbortableIterationConsumer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -66,5 +72,14 @@ public class ClientEntityUtils {
                 });
             }
         }
+    }
+
+    public static Vec3 getPos(Vec3 position, Vec2 rotation, Coordinates coords) {
+        if (coords instanceof LocalCoordinates(double left, double up, double forwards)) {
+            return Vec3.applyLocalCoordinatesToRotation(rotation, new Vec3(left, up, forwards)).add(position);
+        } else if (coords instanceof WorldCoordinates(WorldCoordinate x, WorldCoordinate y, WorldCoordinate z)) {
+            return new Vec3(x.get(position.x), y.get(position.y), z.get(position.z));
+        }
+        return position;
     }
 }
