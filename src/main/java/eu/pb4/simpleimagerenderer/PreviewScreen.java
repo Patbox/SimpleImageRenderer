@@ -338,7 +338,7 @@ public class PreviewScreen<T> extends Screen {
         }).width(100).build());
 
         linearLayout.addChild(Button.builder(button("save_settings"), btn -> {
-            ModInit.settings = this.settings.clone();
+            RendererSettings.defaultSettings = this.settings.clone();
             this.minecraft.getToastManager().addToast(new SystemToast(
                     SystemToast.SystemToastId.PACK_LOAD_FAILURE,
                     text("saved_configuration"),
@@ -361,8 +361,6 @@ public class PreviewScreen<T> extends Screen {
     public void render(GuiGraphics guiGraphics, int i, int j, float f) {
         super.render(guiGraphics, i, j, f);
         this.renderer.render((x, y) -> {
-            var tmp = ModInit.mainRenderTargetReplacement;
-            ModInit.mainRenderTargetReplacement = null;
             var main = this.minecraft.getMainRenderTarget();
 
             var mult = this.minecraft.getWindow().getGuiScale();
@@ -403,7 +401,6 @@ public class PreviewScreen<T> extends Screen {
             );
 
             guiGraphics.pose().popMatrix();
-            ModInit.mainRenderTargetReplacement = tmp;
         }, true);
     }
 

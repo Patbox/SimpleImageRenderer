@@ -4,13 +4,10 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.function.BiConsumer;
 
 public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
@@ -32,7 +29,7 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
         poseStack.scale(width, -width, width);
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ITEMS_3D));
 
-        this.featureRenderDispatcher.getSubmitNodeStorage().submitBlock(poseStack,  this.state, 15728880, OverlayTexture.NO_OVERLAY,  0);
+        this.featureRenderDispatcher.getSubmitNodeStorage().submitBlock(poseStack, this.state, 15728880, OverlayTexture.NO_OVERLAY, 0);
 
         this.featureRenderDispatcher.renderAllFeatures();
         this.featureRenderDispatcher.endFrame();
@@ -45,7 +42,4 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
     public Component getTitle() {
         return this.state.getBlock().getName();
     }
-
-
-    private final List<EntityRenderState> entities = new ArrayList<>();
 }

@@ -6,6 +6,8 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
 public class RendererSettings implements Cloneable {
+    public static RendererSettings defaultSettings = new RendererSettings();
+
     public int width = 512;
     public int height = 512;
     public int yaw = 0;

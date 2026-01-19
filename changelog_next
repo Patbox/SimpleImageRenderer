@@ -1,0 +1,3 @@
+- Improved Region rendering to match closer Vanilla logic (and also render particles).
+- Block/Entity render command will now default to rendering targeted block/entity.
+- Fluids now render correctly when rendering a single block.

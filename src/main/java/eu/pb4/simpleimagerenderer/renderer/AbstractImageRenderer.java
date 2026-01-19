@@ -5,7 +5,7 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import eu.pb4.simpleimagerenderer.ModInit;
+import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
@@ -63,7 +63,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     public void render(BiConsumer<TextureTarget, T> targetConsumer, boolean preview) {
-        ModInit.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
+        RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
         var oldOutputColor = RenderSystem.outputColorTextureOverride;
         var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
         var oldModelViewMatrix = new Matrix4f(RenderSystem.getModelViewMatrix());
@@ -83,7 +83,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.getModelViewMatrix().set(oldModelViewMatrix);
         RenderSystem.outputColorTextureOverride = oldOutputColor;
         RenderSystem.outputDepthTextureOverride = oldOutputDepth;
-        ModInit.glintTimeOverride = -1;
+        RenderUtils.glintTimeOverride = -1;
     }
 
     protected void clearBuffer() {

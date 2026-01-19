@@ -8,7 +8,6 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.resource.CrossFrameResourcePool;
-import com.mojang.blaze3d.resource.RenderTargetDescriptor;
 import com.mojang.blaze3d.resource.ResourceHandle;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -19,39 +18,28 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexSorting;
-import eu.pb4.simpleimagerenderer.ManualCamera;
-import eu.pb4.simpleimagerenderer.ModInit;
 import eu.pb4.simpleimagerenderer.mixin.LevelRendererAccessor;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import eu.pb4.simpleimagerenderer.util.BoxyFrustum;
+import eu.pb4.simpleimagerenderer.util.ManualCamera;
+import eu.pb4.simpleimagerenderer.util.RenderUtils;
+import eu.pb4.simpleimagerenderer.util.renderregion.AreaRenderSectionRegion;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.TextureFilteringMethod;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.chunk.*;
-import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
-import net.minecraft.client.renderer.state.*;
+import net.minecraft.client.renderer.state.LevelRenderState;
+import net.minecraft.client.renderer.state.ParticlesRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.level.material.FluidState;
-import net.minecraft.world.level.material.Fluids;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
-import org.jspecify.annotations.Nullable;
 
-import java.lang.Math;
 import java.util.*;
 import java.util.function.BiConsumer;
 
@@ -83,7 +71,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, i, OptionalDouble.empty());
         }
 
-        var region = new FauxRenderSectionRegion(level, area);
+        var region = new AreaRenderSectionRegion(level, area);
         var compiler = new SectionCompiler(minecraft.getBlockRenderer(), minecraft.getBlockEntityRenderDispatcher());
         var sectionStart = SectionPos.of(area.min());
         var sectionEnd = SectionPos.of(area.max());
@@ -107,6 +95,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             }
             results.release();
         }
+        region = null;
 
         for (var section : this.sections) {
             for (var be : section.sectionMesh.getRenderableBlockEntities()) {
@@ -136,13 +125,6 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         if (this.entityOutlines) {
             this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
         }
-        //var fakeFrustrum = new BoxyFrustum(area);
-        //var camera = new ManualCamera();
-        //camera.setPosition(area.aabb().getCenter());
-
-        //for (var particle : ((ParticleEngineAccessor) minecraft.particleEngine).getParticles().values()) {
-        //    this.particles.add(particle.extractRenderState(fakeFrustrum, camera, minecraft.getDeltaTracker().getGameTimeDeltaTicks()));
-        //}
 
         builder.discardAll();
     }
@@ -214,7 +196,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         var camera = new ManualCamera();
         camera.setPosition(center);
         camera.setRotation(cameraState.orientation);
-        var fakeFrustrum = new BoxyFrustum(area);
+        var frustum = new BoxyFrustum(area);
 
         this.minecraft.gameRenderer.getGlobalSettingsUniform()
                 .update(
@@ -234,7 +216,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
         var targets = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTargets();
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.LEVEL));
-        ModInit.mainRenderTargetReplacement = this.renderTarget;
+        RenderUtils.mainRenderTargetReplacement = this.renderTarget;
         FrameGraphBuilder frameGraphBuilder = new FrameGraphBuilder();
 
         var oldTargetMain = targets.main;
@@ -248,8 +230,8 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         targets.clear();
 
         targets.main = frameGraphBuilder.importExternal("main", this.renderTarget);
-        var renderTargetDescriptor = new RenderTargetDescriptor(this.renderTarget.width, this.renderTarget.height, true, 0);
-        /*var postChain = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTransparencyChain();
+        /*var renderTargetDescriptor = new RenderTargetDescriptor(this.renderTarget.width, this.renderTarget.height, true, 0);
+        var postChain = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTransparencyChain();
         if (postChain != null) {
             targets.translucent = frameGraphBuilder.createInternal("translucent", renderTargetDescriptor);
             targets.itemEntity = frameGraphBuilder.createInternal("item_entity", renderTargetDescriptor);
@@ -271,7 +253,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             outlinePostChain.addToFrame(frameGraphBuilder, this.renderTarget.width, this.renderTarget.height, targets);
         }
 
-        this.minecraft.particleEngine.extract(this.particlesRenderState, fakeFrustrum, camera, deltaTracker.getGameTimeDeltaTicks());
+        this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
         this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, RenderSystem.getShaderFog());
 
         frameGraphBuilder.execute(this.resourcePool);
@@ -290,7 +272,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         targets.weather = oldTargetWeather;
         targets.clouds = oldTargetClouds;
         targets.entityOutline = oldEntityOutline;
-        ModInit.mainRenderTargetReplacement = null;
+        RenderUtils.mainRenderTargetReplacement = null;
 
         this.minecraft.gameRenderer.getGlobalSettingsUniform()
                 .update(
@@ -298,7 +280,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                         this.minecraft.getWindow().getHeight(),
                         this.minecraft.options.glintStrength().get(),
                         this.minecraft.level == null ? 0L : this.minecraft.level.getGameTime(),
-                        deltaTracker,
+                        this.minecraft.getDeltaTracker(),
                         this.minecraft.options.getMenuBackgroundBlurriness(),
                         this.minecraft.gameRenderer.getMainCamera(),
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
@@ -553,85 +535,5 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     }
 
     public record Section(BlockPos origin, CompiledSectionMesh sectionMesh) {
-    }
-
-    private static class FauxRenderSectionRegion extends RenderSectionRegion {
-        private final BlockBox area;
-        private final Level level;
-        private final Long2ObjectMap<LevelChunkSection> sections = new Long2ObjectOpenHashMap<>();
-        private LevelChunkSection emptySection;
-
-        public FauxRenderSectionRegion(Level level, BlockBox area) {
-            super(level, 0, 0, 0, new SectionCopy[0]);
-            this.level = level;
-            this.area = area;
-        }
-
-        @Override
-        public BlockState getBlockState(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                var key = SectionPos.asLong(blockPos);
-                var section = this.sections.get(key);
-                if (section == null) {
-                    var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
-                    section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                    this.sections.put(key, section);
-                }
-
-                return section.getStates().get(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
-            }
-
-            return Blocks.VOID_AIR.defaultBlockState();
-        }
-
-        @Override
-        public FluidState getFluidState(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                var key = SectionPos.asLong(blockPos);
-                var section = this.sections.get(key);
-                if (section == null) {
-                    var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
-                    section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                    this.sections.put(key, section);
-                }
-
-                return section.getFluidState(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
-            }
-
-            return Fluids.EMPTY.defaultFluidState();
-        }
-
-        @Override
-        public @Nullable BlockEntity getBlockEntity(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                return this.level.getBlockEntity(blockPos);
-            }
-
-            return null;
-        }
-    }
-
-    private static class BoxyFrustum extends Frustum {
-        private final AABB area;
-
-        public BoxyFrustum(BlockBox area) {
-            super(new Matrix4f(), new Matrix4f());
-            this.area = area.aabb();
-        }
-
-        @Override
-        public boolean isVisible(AABB aABB) {
-            return this.area.intersects(aABB);
-        }
-
-        @Override
-        public int cubeInFrustum(BoundingBox boundingBox) {
-            return this.area.intersects(AABB.of(boundingBox)) ? 1 : 0;
-        }
-
-        @Override
-        public boolean pointInFrustum(double d, double e, double f) {
-            return this.area.contains(d, e, f);
-        }
     }
 }

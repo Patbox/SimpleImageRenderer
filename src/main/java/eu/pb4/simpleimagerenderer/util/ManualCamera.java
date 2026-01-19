@@ -1,4 +1,4 @@
-package eu.pb4.simpleimagerenderer;
+package eu.pb4.simpleimagerenderer.util;
 
 import eu.pb4.simpleimagerenderer.mixin.CameraAccessor;
 import net.minecraft.client.Camera;
