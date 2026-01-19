@@ -261,6 +261,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         if (this.entityOutlines) {
             this.entityOutlineTarget.blitAndBlendToTexture(this.renderTarget.getColorTextureView());
         }
+        RenderUtils.mainRenderTargetReplacement = null;
 
         targetConsumer.accept(this.renderTarget, null);
         targets.clear();
@@ -272,7 +273,6 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         targets.weather = oldTargetWeather;
         targets.clouds = oldTargetClouds;
         targets.entityOutline = oldEntityOutline;
-        RenderUtils.mainRenderTargetReplacement = null;
 
         this.minecraft.gameRenderer.getGlobalSettingsUniform()
                 .update(
