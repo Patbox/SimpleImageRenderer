@@ -7,10 +7,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import org.joml.Quaternionf;
 
 import java.util.function.BiConsumer;
 
@@ -57,11 +55,13 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
                 livingEntityRenderState.walkAnimationSpeed = this.walkAnimationSpeed;
             }
         }
+        var cameraState = new CameraRenderState();
+        cameraState.orientation = this.cameraOrientation;
 
-        minecraft.getEntityRenderDispatcher().submit(state, new CameraRenderState(), 0, 0, 0, poseStack, this.renderDispatcher.getSubmitNodeStorage());
+        minecraft.getEntityRenderDispatcher().submit(state, cameraState, 0, 0, 0, poseStack, this.featureRenderDispatcher.getSubmitNodeStorage());
 
-        this.renderDispatcher.renderAllFeatures();
-        this.renderDispatcher.endFrame();
+        this.featureRenderDispatcher.renderAllFeatures();
+        this.featureRenderDispatcher.endFrame();
         this.bufferSource.endBatch();
 
         targetConsumer.accept(this.renderTarget, this.entity);

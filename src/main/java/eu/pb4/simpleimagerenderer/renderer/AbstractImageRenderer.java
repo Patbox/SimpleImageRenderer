@@ -1,16 +1,16 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.ProjectionType;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.terraformersmc.modmenu.util.mod.Mod;
 import eu.pb4.simpleimagerenderer.ModInit;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
+import net.minecraft.client.renderer.RenderBuffers;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.network.chat.Component;
 import org.joml.Matrix4f;
@@ -20,8 +20,10 @@ import java.util.function.BiConsumer;
 
 public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Minecraft minecraft;
+    protected final RenderBuffers renderBuffers;
+    protected final SubmitNodeStorage submitNodeStorage;
     protected TextureTarget renderTarget;
-    protected final FeatureRenderDispatcher renderDispatcher;
+    protected final FeatureRenderDispatcher featureRenderDispatcher;
     protected final MultiBufferSource.BufferSource bufferSource;
     protected final PerspectiveProjectionMatrixBuffer perspectiveBuffer;
     protected final Matrix4f projectionMatrix = new Matrix4f();
@@ -51,7 +53,9 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public AbstractImageRenderer(Minecraft minecraft, int width, int height) {
         this.minecraft = minecraft;
-        this.renderDispatcher = minecraft.gameRenderer.getFeatureRenderDispatcher();
+        this.featureRenderDispatcher = minecraft.gameRenderer.getFeatureRenderDispatcher();
+        this.submitNodeStorage = this.featureRenderDispatcher.getSubmitNodeStorage();
+        this.renderBuffers = minecraft.renderBuffers();
         this.bufferSource = minecraft.renderBuffers().bufferSource();
         this.perspectiveBuffer = new PerspectiveProjectionMatrixBuffer("render");
 
