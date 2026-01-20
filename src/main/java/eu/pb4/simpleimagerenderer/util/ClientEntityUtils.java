@@ -1,4 +1,4 @@
-package eu.pb4.simpleimagerenderer;
+package eu.pb4.simpleimagerenderer.util;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import eu.pb4.simpleimagerenderer.mixin.ClientLevelAccessor;
@@ -11,7 +11,6 @@ import net.minecraft.commands.arguments.coordinates.LocalCoordinates;
 import net.minecraft.commands.arguments.coordinates.WorldCoordinate;
 import net.minecraft.commands.arguments.coordinates.WorldCoordinates;
 import net.minecraft.commands.arguments.selector.EntitySelector;
-import net.minecraft.core.BlockPos;
 import net.minecraft.util.AbortableIterationConsumer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;

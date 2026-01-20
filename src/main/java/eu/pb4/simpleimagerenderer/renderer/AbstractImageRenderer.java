@@ -5,11 +5,13 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import eu.pb4.simpleimagerenderer.ModInit;
 import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
+import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
+import net.minecraft.client.renderer.RenderBuffers;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.network.chat.Component;
 import org.joml.Matrix4f;
@@ -19,20 +21,33 @@ import java.util.function.BiConsumer;
 
 public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Minecraft minecraft;
-    protected TextureTarget renderTarget;
-    protected final FeatureRenderDispatcher renderDispatcher;
+    protected final RenderBuffers renderBuffers;
+    protected final SubmitNodeStorage submitNodeStorage;
+    protected final FeatureRenderDispatcher featureRenderDispatcher;
     protected final MultiBufferSource.BufferSource bufferSource;
     protected final PerspectiveProjectionMatrixBuffer perspectiveBuffer;
     protected final Matrix4f projectionMatrix = new Matrix4f();
-    protected int height;
-    protected int width;
     protected final Matrix4f matrix = new Matrix4f();
     protected final Quaternionf cameraOrientation = new Quaternionf();
-    private boolean multiplyNormals = true;
+    protected TextureTarget renderTarget;
+    protected int height;
+    protected int width;
     protected LightingType lightingType = LightingType.DEFAULT;
     protected long glintTime = 0;
     protected LightmapType lightmapType = LightmapType.DEFAULT;
     protected boolean useUiLightmapByDefault = true;
+    protected boolean multiplyNormals = true;
+    private ProjectionType projectionType = ProjectionType.ORTHOGRAPHIC;
+
+    public AbstractImageRenderer(Minecraft minecraft, int width, int height) {
+        this.minecraft = minecraft;
+        this.featureRenderDispatcher = minecraft.gameRenderer.getFeatureRenderDispatcher();
+        this.submitNodeStorage = this.featureRenderDispatcher.getSubmitNodeStorage();
+        this.renderBuffers = minecraft.renderBuffers();
+        this.bufferSource = minecraft.renderBuffers().bufferSource();
+        this.perspectiveBuffer = new PerspectiveProjectionMatrixBuffer("render");
+        this.setupTexture(width, height);
+    }
 
     public int width() {
         return width;
@@ -50,17 +65,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.multiplyNormals = multiplyNormals;
     }
 
-    public AbstractImageRenderer(Minecraft minecraft, int width, int height) {
-        this.minecraft = minecraft;
-        this.renderDispatcher = minecraft.gameRenderer.getFeatureRenderDispatcher();
-        this.bufferSource = minecraft.renderBuffers().bufferSource();
-        this.perspectiveBuffer = new PerspectiveProjectionMatrixBuffer("render");
-
-        this.setupTexture(width, height);
-    }
-
     public void render(BiConsumer<TextureTarget, T> targetConsumer, boolean preview) {
-        ModInit.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
+        RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
         var oldOutputColor = RenderSystem.outputColorTextureOverride;
         var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
         var oldModelViewMatrix = new Matrix4f(RenderSystem.getModelViewMatrix());
@@ -68,7 +74,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.outputColorTextureOverride = renderTarget.getColorTextureView();
         RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
         RenderSystem.backupProjectionMatrix();
-        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.ORTHOGRAPHIC);
+        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), projectionType);
 
         var oldLightmap = ((GameRendererAccessor) this.minecraft.gameRenderer).isUseUiLightmap();
         ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(this.lightmapType.useUiLightmap(this.useUiLightmapByDefault));
@@ -87,7 +93,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.getModelViewMatrix().set(oldModelViewMatrix);
         RenderSystem.outputColorTextureOverride = oldOutputColor;
         RenderSystem.outputDepthTextureOverride = oldOutputDepth;
-        ModInit.glintTimeOverride = -1;
+        RenderUtils.glintTimeOverride = -1;
     }
 
     protected void clearBuffer() {
@@ -100,6 +106,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     public void setupTexture(int width) {
         setupTexture(width, width);
     }
+
     public void setupTexture(int width, int height) {
         if (this.renderTarget != null) {
             this.renderTarget.destroyBuffers();
@@ -108,10 +115,26 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.height = height;
 
         this.renderTarget = new TextureTarget("image_out", width, height, true);
-        this.projectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, -5000.0F, 5000.0F);
-        /*this.projectionMatrix.identity().perspective(
-                90 * (float) (Math.PI / 180.0), 1, 0.05F, 50000
-        );*/
+        this.updateProjectionMatrix();
+    }
+
+    public ProjectionType projectionType() {
+        return projectionType;
+    }
+
+    public void setProjectionType(ProjectionType projectionType) {
+        this.projectionType = projectionType;
+        this.updateProjectionMatrix();
+    }
+
+    private void updateProjectionMatrix() {
+        if (this.projectionType == ProjectionType.ORTHOGRAPHIC) {
+            this.projectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, -5000.0F, 5000.0F);
+        } else {
+            this.projectionMatrix.identity().perspective(
+                    90 * (float) (Math.PI / 180.0), 1, 0.05F, 50000
+            );
+        }
     }
 
     @Override
@@ -172,7 +195,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
         private final Lighting.Entry entry;
 
-        private LightingType(Lighting.Entry entry) {
+        LightingType(Lighting.Entry entry) {
             this.entry = entry;
         }
 

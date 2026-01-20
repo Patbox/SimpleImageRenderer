@@ -15,7 +15,7 @@ jobs:
           25   # Minimum supported by Minecraft
         ]
         # and run on both Linux and Windows
-        os: [ubuntulatest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: checkout repository

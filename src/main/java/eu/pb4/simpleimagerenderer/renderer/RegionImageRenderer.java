@@ -2,9 +2,13 @@ package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
+import com.mojang.blaze3d.framegraph.FramePass;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
+import com.mojang.blaze3d.resource.ResourceHandle;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.AddressMode;
@@ -14,53 +18,40 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexSorting;
-import eu.pb4.simpleimagerenderer.ManualCamera;
-import eu.pb4.simpleimagerenderer.ModInit;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import net.minecraft.SharedConstants;
+import eu.pb4.simpleimagerenderer.mixin.LevelRendererAccessor;
+import eu.pb4.simpleimagerenderer.util.BoxyFrustum;
+import eu.pb4.simpleimagerenderer.util.ManualCamera;
+import eu.pb4.simpleimagerenderer.util.RenderUtils;
+import eu.pb4.simpleimagerenderer.util.renderregion.AreaRenderSectionRegion;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.TextureFilteringMethod;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.DynamicUniforms;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;
+import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.chunk.*;
-import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
-import net.minecraft.client.renderer.state.CameraRenderState;
-import net.minecraft.client.renderer.state.ParticleGroupRenderState;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.state.LevelRenderState;
 import net.minecraft.client.renderer.state.ParticlesRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.EmptyLevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.level.material.FluidState;
-import net.minecraft.world.level.material.Fluids;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
-import org.jspecify.annotations.Nullable;
 
-import java.lang.Math;
 import java.util.*;
 import java.util.function.BiConsumer;
 
 
 public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     private final List<Section> sections = new ArrayList<>();
-    private final List<EntityRenderState> entities = new ArrayList<>();
-    private final List<BlockEntityRenderState> blockEntities = new ArrayList<>();
-    private final List<ParticleGroupRenderState> particles = new ArrayList<>();
+    private final LevelRenderState levelRenderState = new LevelRenderState();
+    private final CrossFrameResourcePool resourcePool = new CrossFrameResourcePool(3);
+    private final ParticlesRenderState particlesRenderState = new ParticlesRenderState();
+
+    private final boolean entityOutlines;
 
     private final GpuSampler chunkLayerSampler;
     private final BlockBox area;
@@ -68,10 +59,12 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     private boolean renderEntities = true;
     private boolean renderNametags = true;
     private boolean renderSelf = true;
+    private boolean renderParticles = true;
+
+    private TextureTarget entityOutlineTarget;
 
     public RegionImageRenderer(Minecraft minecraft, int width, int height, ClientLevel level, BlockBox area) {
         super(minecraft, width, height);
-        this.useUiLightmapByDefault = false;
         this.area = area;
 
         {
@@ -80,7 +73,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, i, OptionalDouble.empty());
         }
 
-        var region = new FauxRenderSectionRegion(level, area);
+        var region = new AreaRenderSectionRegion(level, area);
         var compiler = new SectionCompiler(minecraft.getBlockRenderer(), minecraft.getBlockEntityRenderDispatcher());
         var sectionStart = SectionPos.of(area.min());
         var sectionEnd = SectionPos.of(area.max());
@@ -104,28 +97,37 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             }
             results.release();
         }
+        region = null;
 
         for (var section : this.sections) {
             for (var be : section.sectionMesh.getRenderableBlockEntities()) {
                 var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null);
                 if (state != null) {
-                    this.blockEntities.add(state);
+                    this.levelRenderState.blockEntityRenderStates.add(state);
+                }
+            }
+
+            for (var be : level.getGloballyRenderedBlockEntities()) {
+                if (area.contains(be.getBlockPos())) {
+                    var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null);
+                    if (state != null) {
+                        this.levelRenderState.blockEntityRenderStates.add(state);
+                    }
                 }
             }
         }
 
-        for (var entity : level.getEntities(null, area.aabb())) {
+        var outline = false;
+        for (var entity : level.getEntities(null, area.aabb().inflate(0.01f))) {
             var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
-            this.entities.add(state);
+            outline |= state.appearsGlowing();
+            this.levelRenderState.entityRenderStates.add(state);
         }
-
-        //var fakeFrustrum = new BoxyFrustum(area);
-        //var camera = new ManualCamera();
-        //camera.setPosition(area.aabb().getCenter());
-
-        //for (var particle : ((ParticleEngineAccessor) minecraft.particleEngine).getParticles().values()) {
-        //    this.particles.add(particle.extractRenderState(fakeFrustrum, camera, minecraft.getDeltaTracker().getGameTimeDeltaTicks()));
-        //}
+        this.levelRenderState.haveGlowingEntities = outline;
+        if (this.levelRenderState.haveGlowingEntities) {
+            this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
+        }
+        this.entityOutlines = levelRenderState.haveGlowingEntities;
 
         builder.discardAll();
     }
@@ -137,6 +139,22 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             section.sectionMesh.close();
         }
         this.sections.clear();
+        if (this.entityOutlineTarget != null) {
+            this.entityOutlineTarget.destroyBuffers();
+        }
+        this.resourcePool.close();
+    }
+
+    @Override
+    public void setupTexture(int width, int height) {
+        super.setupTexture(width, height);
+        if (this.resourcePool != null) {
+            this.resourcePool.clear();
+        }
+        if (this.entityOutlineTarget != null) {
+            this.entityOutlineTarget.destroyBuffers();
+            this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
+        }
     }
 
     public boolean renderEntities() {
@@ -159,29 +177,39 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         return renderNametags;
     }
 
+    public boolean renderParticles() {
+        return renderParticles;
+    }
+
+    public void setRenderParticles(boolean renderParticles) {
+        this.renderParticles = renderParticles;
+    }
+
     public void setRenderNametags(boolean renderNametags) {
         this.renderNametags = renderNametags;
     }
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, Void> targetConsumer, boolean preview) {
-        var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
+        RenderSystem.outputColorTextureOverride = null;
+        RenderSystem.outputDepthTextureOverride = null;
         var center = area.aabb().getCenter();
+        var deltaTracker = DeltaTracker.ZERO;
 
         var poseStack = new PoseStack();
         poseStack.pushPose();
         this.multiplyPoseStack(poseStack);
-        var cameraState = new CameraRenderState();
+        var cameraState = this.levelRenderState.cameraRenderState;
         cameraState.entityPos = center;
         cameraState.blockPos = BlockPos.containing(center);
-        cameraState.pos = cameraState.entityPos;
+        cameraState.pos = center;
         cameraState.orientation = this.cameraOrientation;
         cameraState.initialized = true;
 
         var camera = new ManualCamera();
         camera.setPosition(center);
         camera.setRotation(cameraState.orientation);
-        var fakeFrustrum = new BoxyFrustum(area);
+        var frustum = new BoxyFrustum(area);
 
         this.minecraft.gameRenderer.getGlobalSettingsUniform()
                 .update(
@@ -189,83 +217,76 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                         this.renderTarget.height,
                         this.minecraft.options.glintStrength().get(),
                         this.minecraft.level == null ? 0L : this.minecraft.level.getGameTime(),
-                        this.minecraft.getDeltaTracker(),
+                        deltaTracker,
                         this.minecraft.options.getMenuBackgroundBlurriness(),
                         camera,
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
                 );
 
         poseStack.scale(width, -width, width);
-        var scale = 1f / Math.min(Math.min(area.sizeX(), area.sizeY()), area.sizeZ());
+        var scale = 1f / ((area.sizeX() + area.sizeY() + area.sizeZ()) / 3f);
         poseStack.scale(scale, scale, scale);
 
-        poseStack.last().normal().scale(1, -1, 1);
-
+        var targets = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTargets();
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.LEVEL));
+        RenderUtils.mainRenderTargetReplacement = this.renderTarget;
+        FrameGraphBuilder frameGraphBuilder = new FrameGraphBuilder();
 
-        var render = prepareChunkRenders(poseStack.last().pose());
+        var oldTargetMain = targets.main;
+        var oldTargetTranslucent = targets.translucent;
+        var oldTargetItemEntity = targets.itemEntity;
+        var oldTargetParticles = targets.particles;
+        var oldTargetWeather = targets.weather;
+        var oldTargetClouds = targets.clouds;
+        var oldEntityOutline = targets.entityOutline;
 
-        renderGroup(render, ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
+        targets.clear();
 
-        ModInit.mainRenderTargetReplacement = this.renderTarget;
-        for (var state : this.blockEntities) {
-            poseStack.pushPose();
-            poseStack.translate(state.blockPos.getX() - center.x, state.blockPos.getY() - center.y, state.blockPos.getZ() - center.z);
-            var l = state.lightCoords;
-            if (uiLightmap) {
-                state.lightCoords = 0;
-            }
-            this.minecraft.getBlockEntityRenderDispatcher().submit(state, poseStack,
-                    this.renderDispatcher.getSubmitNodeStorage(), new CameraRenderState());
-            state.lightCoords = l;
-            poseStack.popPose();
-        }
-        this.renderDispatcher.renderAllFeatures();
-        if (this.renderEntities) {
-            for (var state : this.entities) {
-                if (!this.renderSelf && state instanceof AvatarRenderState state1 && state1.id == this.minecraft.player.getId()) {
-                    continue;
-                }
-
-                poseStack.pushPose();
-                poseStack.translate(state.x - center.x, state.y - center.y, state.z - center.z);
-                var nameTag = state.nameTag;
-                if (!this.renderNametags) {
-                    state.nameTag = null;
-                }
-                var l = state.lightCoords;
-                if (uiLightmap) {
-                    state.lightCoords = 0;
-                }
-                minecraft.getEntityRenderDispatcher().submit(state, cameraState, 0, 0, 0, poseStack, this.renderDispatcher.getSubmitNodeStorage());
-                state.nameTag = nameTag;
-                state.lightCoords = l;
-                poseStack.popPose();
-            }
-            this.renderDispatcher.renderAllFeatures();
-        }
-
-        /*for (var state : this.particles) {
-            poseStack.pushPose();
-            state.submit(this.renderDispatcher.getSubmitNodeStorage(), cameraState);
-            poseStack.popPose();
+        targets.main = frameGraphBuilder.importExternal("main", this.renderTarget);
+        /*var renderTargetDescriptor = new RenderTargetDescriptor(this.renderTarget.width, this.renderTarget.height, true, 0);
+        var postChain = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTransparencyChain();
+        if (postChain != null) {
+            targets.translucent = frameGraphBuilder.createInternal("translucent", renderTargetDescriptor);
+            targets.itemEntity = frameGraphBuilder.createInternal("item_entity", renderTargetDescriptor);
+            targets.particles = frameGraphBuilder.createInternal("particles", renderTargetDescriptor);
+            targets.weather = frameGraphBuilder.createInternal("weather", renderTargetDescriptor);
+            targets.clouds = frameGraphBuilder.createInternal("clouds", renderTargetDescriptor);
         }*/
-        var particles = new ParticlesRenderState();
-        this.minecraft.particleEngine.extract(particles, fakeFrustrum, camera, this.minecraft.getDeltaTracker().getGameTimeDeltaTicks());
-        particles.submit(this.renderDispatcher.getSubmitNodeStorage(), cameraState);
-        particles.reset();
 
-        this.renderDispatcher.renderAllFeatures();
 
-        renderGroup(render, ChunkSectionLayerGroup.TRANSLUCENT, this.chunkLayerSampler);
+        if (this.entityOutlineTarget != null) {
+            targets.entityOutline = frameGraphBuilder.importExternal("entity_outline", this.entityOutlineTarget);
+        }
 
-        this.renderDispatcher.renderAllFeatures();
-        this.renderDispatcher.endFrame();
-        bufferSource.endBatch();
-        ModInit.mainRenderTargetReplacement = null;
+        this.addMainPass(targets, frameGraphBuilder, poseStack, RenderSystem.getShaderFog(),
+                false, this.levelRenderState);
+
+        PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
+        if (this.levelRenderState.haveGlowingEntities && outlinePostChain != null) {
+            outlinePostChain.addToFrame(frameGraphBuilder, this.renderTarget.width, this.renderTarget.height, targets);
+        }
+
+        if (this.renderParticles) {
+            this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
+            this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, RenderSystem.getShaderFog());
+        }
+        frameGraphBuilder.execute(this.resourcePool);
+
+        if (this.levelRenderState.haveGlowingEntities) {
+            this.entityOutlineTarget.blitAndBlendToTexture(this.renderTarget.getColorTextureView());
+        }
+        RenderUtils.mainRenderTargetReplacement = null;
 
         targetConsumer.accept(this.renderTarget, null);
+        targets.clear();
 
+        targets.main = oldTargetMain;
+        targets.translucent = oldTargetTranslucent;
+        targets.itemEntity = oldTargetItemEntity;
+        targets.particles = oldTargetParticles;
+        targets.weather = oldTargetWeather;
+        targets.clouds = oldTargetClouds;
+        targets.entityOutline = oldEntityOutline;
 
         this.minecraft.gameRenderer.getGlobalSettingsUniform()
                 .update(
@@ -280,6 +301,175 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                 );
     }
 
+    private void addMainPass(
+            LevelTargetBundle targets,
+            FrameGraphBuilder frameGraphBuilder,
+            PoseStack sourcePoseStack,
+            GpuBufferSlice fog,
+            boolean renderOutlines,
+            LevelRenderState levelRenderState
+    ) {
+        FramePass framePass = frameGraphBuilder.addPass("main");
+        targets.main = framePass.readsAndWrites(targets.main);
+        if (targets.translucent != null) {
+            targets.translucent = framePass.readsAndWrites(targets.translucent);
+        }
+
+        if (targets.itemEntity != null) {
+            targets.itemEntity = framePass.readsAndWrites(targets.itemEntity);
+        }
+
+        if (targets.weather != null) {
+            targets.weather = framePass.readsAndWrites(targets.weather);
+        }
+
+        if (levelRenderState.haveGlowingEntities && targets.entityOutline != null) {
+            targets.entityOutline = framePass.readsAndWrites(targets.entityOutline);
+        }
+
+        var mainHandle = targets.main;
+        var translucentHandle = targets.translucent;
+        var itemEntityHandle = targets.itemEntity;
+        var entityOutlineHandle = targets.entityOutline;
+        framePass.executes(
+                () -> {
+                    RenderSystem.setShaderFog(fog);
+                    var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
+                    chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
+                    //this.minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.LEVEL);
+                    if (itemEntityHandle != null) {
+                        itemEntityHandle.get().copyDepthFrom(this.minecraft.getMainRenderTarget());
+                    }
+
+                    if (this.levelRenderState.haveGlowingEntities && entityOutlineHandle != null) {
+                        RenderTarget renderTarget = entityOutlineHandle.get();
+                        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(renderTarget.getColorTexture(), 0, renderTarget.getDepthTexture(), 1.0);
+                    }
+
+                    PoseStack poseStack = new PoseStack();
+                    poseStack.last().pose().set(sourcePoseStack.last().pose());
+                    //poseStack.last().normal().set(sourcePoseStack.last().normal());
+
+                    MultiBufferSource.BufferSource bufferSource = this.renderBuffers.bufferSource();
+                    MultiBufferSource.BufferSource bufferSource2 = this.renderBuffers.crumblingBufferSource();
+
+                    if (this.renderEntities) {
+                        AvatarRenderState selfState = null;
+                        List<Component> nameTags = this.renderNametags ? null : new ArrayList<>(levelRenderState.entityRenderStates.size());
+
+                        if (!this.renderSelf || !this.renderNametags) {
+                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
+                                var state = levelRenderState.entityRenderStates.get(i);
+                                if (!this.renderSelf && state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == this.minecraft.player.getId()) {
+                                    selfState = avatarRenderState;
+                                    levelRenderState.entityRenderStates.remove(i);
+                                    if (this.renderNametags) {
+                                        break;
+                                    } else {
+                                        continue;
+                                    }
+                                }
+                                if (!this.renderNametags) {
+                                    assert nameTags != null;
+                                    nameTags.add(state.nameTag);
+                                    state.nameTag = null;
+                                }
+                            }
+                        }
+
+                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
+
+                        if (nameTags != null) {
+                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
+                                levelRenderState.entityRenderStates.get(i).nameTag = nameTags.get(i);
+                            }
+                        }
+
+                        if (selfState != null) {
+                            levelRenderState.entityRenderStates.add(selfState);
+                        }
+                    }
+
+                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
+                    this.featureRenderDispatcher.renderAllFeatures();
+
+                    bufferSource.endLastBatch();
+                    this.checkPoseStack(poseStack);
+                    bufferSource.endBatch(RenderTypes.solidMovingBlock());
+                    bufferSource.endBatch(RenderTypes.endPortal());
+                    bufferSource.endBatch(RenderTypes.endGateway());
+                    bufferSource.endBatch(Sheets.solidBlockSheet());
+                    bufferSource.endBatch(Sheets.cutoutBlockSheet());
+                    bufferSource.endBatch(Sheets.bedSheet());
+                    bufferSource.endBatch(Sheets.shulkerBoxSheet());
+                    bufferSource.endBatch(Sheets.signSheet());
+                    bufferSource.endBatch(Sheets.hangingSignSheet());
+                    bufferSource.endBatch(Sheets.chestSheet());
+                    this.renderBuffers.outlineBufferSource().endOutlineBatch();
+                    if (renderOutlines) {
+                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_renderBlockOutline(bufferSource, poseStack, false, levelRenderState);
+                    }
+
+                    //this.finalizeGizmoCollection();
+                    //this.finalizedGizmos.standardPrimitives().render(poseStack, bufferSource, levelRenderState.cameraRenderState, matrix);
+                    bufferSource.endLastBatch();
+                    this.checkPoseStack(poseStack);
+                    bufferSource.endBatch(Sheets.translucentItemSheet());
+                    bufferSource.endBatch(Sheets.bannerSheet());
+                    bufferSource.endBatch(Sheets.shieldSheet());
+                    bufferSource.endBatch(RenderTypes.armorEntityGlint());
+                    bufferSource.endBatch(RenderTypes.glint());
+                    bufferSource.endBatch(RenderTypes.glintTranslucent());
+                    bufferSource.endBatch(RenderTypes.entityGlint());
+                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_renderBlockDestroyAnimation(poseStack, bufferSource2, levelRenderState);
+                    bufferSource2.endBatch();
+                    this.checkPoseStack(poseStack);
+                    bufferSource.endBatch(RenderTypes.waterMask());
+                    bufferSource.endBatch();
+                    if (translucentHandle != null) {
+                        translucentHandle.get().copyDepthFrom(mainHandle.get());
+                    }
+
+                    chunkSections.renderGroup(ChunkSectionLayerGroup.TRANSLUCENT, this.chunkLayerSampler);
+                    chunkSections.renderGroup(ChunkSectionLayerGroup.TRIPWIRE, this.chunkLayerSampler);
+
+                    bufferSource.endBatch();
+                }
+        );
+    }
+
+    private void addParticlesPass(LevelTargetBundle targets, Matrix4fc pose, FrameGraphBuilder frameGraphBuilder, GpuBufferSlice gpuBufferSlice) {
+        FramePass framePass = frameGraphBuilder.addPass("particles");
+        if (targets.particles != null) {
+            targets.particles = framePass.readsAndWrites(targets.particles);
+            framePass.reads(targets.main);
+        } else {
+            targets.main = framePass.readsAndWrites(targets.main);
+        }
+
+        ResourceHandle<RenderTarget> resourceHandle = targets.main;
+        ResourceHandle<RenderTarget> resourceHandle2 = targets.particles;
+        framePass.executes(() -> {
+            RenderSystem.setShaderFog(gpuBufferSlice);
+            if (resourceHandle2 != null) {
+                resourceHandle2.get().copyDepthFrom(resourceHandle.get());
+            }
+            var oldMatrix = new Matrix4f(RenderSystem.getModelViewMatrix());
+            RenderSystem.getModelViewMatrix().set(pose);
+            this.particlesRenderState.submit(this.submitNodeStorage, this.levelRenderState.cameraRenderState);
+            this.featureRenderDispatcher.renderAllFeatures();
+            this.particlesRenderState.reset();
+            RenderSystem.getModelViewMatrix().set(oldMatrix);
+        });
+    }
+
+    private void checkPoseStack(PoseStack poseStack) {
+        if (!poseStack.isEmpty()) {
+            throw new IllegalStateException("Pose stack not empty");
+        }
+    }
+
+
     @Override
     public void updateMatrix(Matrix4f matrix4f, Quaternionf quaternionf) {
         super.updateMatrix(matrix4f, quaternionf);
@@ -287,7 +477,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         var camPos = new Vector4f(0, 0, -1, 0);
         camPos.mul(new Matrix4f(projectionMatrix).invert()).mul(new Matrix4f(matrix4f).invert());
 
-        var vec = new Vector3f(camPos.x, camPos.y, camPos.z).normalize().mul(1000).mul(1, -1,1).add(this.area.aabb().getCenter().toVector3f());
+        var vec = new Vector3f(camPos.x, camPos.y, camPos.z).normalize().mul(1000).mul(1, -1, 1).add(this.area.aabb().getCenter().toVector3f());
         var vec3 = new Vec3(vec);
         var builder = minecraft.renderBuffers().fixedBufferPack();
 
@@ -318,42 +508,6 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     @Override
     public Component getTitle() {
         return Component.translatable("text.simple_image_renderer.region", this.area.min().toShortString(), this.area.max().toShortString());
-    }
-
-    private void renderGroup(ChunkSectionsToRender sectionsToRender, ChunkSectionLayerGroup chunkSectionLayerGroup, GpuSampler gpuSampler) {
-        RenderSystem.AutoStorageIndexBuffer autoStorageIndexBuffer = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
-        GpuBuffer gpuBuffer = sectionsToRender.maxIndicesRequired() == 0 ? null : autoStorageIndexBuffer.getBuffer(sectionsToRender.maxIndicesRequired());
-        VertexFormat.IndexType indexType = sectionsToRender.maxIndicesRequired() == 0 ? null : autoStorageIndexBuffer.type();
-        ChunkSectionLayer[] chunkSectionLayers = chunkSectionLayerGroup.layers();
-        Minecraft minecraft = Minecraft.getInstance();
-        boolean bl = SharedConstants.DEBUG_HOTKEYS && minecraft.wireframe;
-        RenderTarget renderTarget = this.renderTarget;//chunkSectionLayerGroup.outputTarget();
-
-        try (RenderPass renderPass = RenderSystem.getDevice()
-                .createCommandEncoder()
-                .createRenderPass(
-                        () -> "Section layers for " + chunkSectionLayerGroup.label(),
-                        renderTarget.getColorTextureView(),
-                        OptionalInt.empty(),
-                        renderTarget.getDepthTextureView(),
-                        OptionalDouble.empty()
-                )) {
-            RenderSystem.bindDefaultUniforms(renderPass);
-            renderPass.bindTexture("Sampler2", minecraft.gameRenderer.lightmap(), RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-
-            for (ChunkSectionLayer chunkSectionLayer : chunkSectionLayers) {
-                List<RenderPass.Draw<GpuBufferSlice[]>> list = sectionsToRender.drawsPerLayer().get(chunkSectionLayer);
-                if (!list.isEmpty()) {
-                    if (chunkSectionLayer == ChunkSectionLayer.TRANSLUCENT) {
-                        list = list.reversed();
-                    }
-
-                    renderPass.setPipeline(bl ? RenderPipelines.WIREFRAME : chunkSectionLayer.pipeline());
-                    renderPass.bindTexture("Sampler0", sectionsToRender.textureView(), gpuSampler);
-                    renderPass.drawMultipleIndexed(list, gpuBuffer, indexType, List.of("ChunkSection"), sectionsToRender.chunkSectionInfos());
-                }
-            }
-        }
     }
 
     private ChunkSectionsToRender prepareChunkRenders(final Matrix4fc modelViewMatrix) {
@@ -430,85 +584,5 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     }
 
     public record Section(BlockPos origin, CompiledSectionMesh sectionMesh) {
-    }
-
-    private static class FauxRenderSectionRegion extends RenderSectionRegion {
-        private LevelChunkSection emptySection;
-        private final BlockBox area;
-        private final Level level;
-        private final Long2ObjectMap<LevelChunkSection> sections = new Long2ObjectOpenHashMap<>();
-
-        public FauxRenderSectionRegion(Level level, BlockBox area) {
-            super(level, 0, 0, 0, new SectionCopy[0]);
-            this.level = level;
-            this.area = area;
-        }
-
-        @Override
-        public BlockState getBlockState(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                var key = SectionPos.asLong(blockPos);
-                var section = this.sections.get(key);
-                if (section == null) {
-                    var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
-                    section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                    this.sections.put(key, section);
-                }
-
-                return section.getStates().get(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
-            }
-
-            return Blocks.VOID_AIR.defaultBlockState();
-        }
-
-        @Override
-        public FluidState getFluidState(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                var key = SectionPos.asLong(blockPos);
-                var section = this.sections.get(key);
-                if (section == null) {
-                    var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
-                    section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                    this.sections.put(key, section);
-                }
-
-                return section.getFluidState(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
-            }
-
-            return Fluids.EMPTY.defaultFluidState();
-        }
-
-        @Override
-        public @Nullable BlockEntity getBlockEntity(BlockPos blockPos) {
-            if (this.area.contains(blockPos)) {
-                return this.level.getBlockEntity(blockPos);
-            }
-
-            return null;
-        }
-    }
-
-    private static class BoxyFrustum extends Frustum {
-        private final AABB area;
-
-        public BoxyFrustum(BlockBox area) {
-            super(new Matrix4f(), new Matrix4f());
-            this.area = area.aabb();
-        }
-
-        @Override
-        public boolean isVisible(AABB aABB) {
-            return this.area.intersects(aABB);
-        }
-
-        @Override
-        public int cubeInFrustum(BoundingBox boundingBox) {
-            return this.area.intersects(AABB.of(boundingBox)) ? 1 : 0;
-        }
-
-        @Override
-        public boolean pointInFrustum(double d, double e, double f) {
-            return true;
-        }
     }
 }
