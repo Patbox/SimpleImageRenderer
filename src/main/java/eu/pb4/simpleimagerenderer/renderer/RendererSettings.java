@@ -22,6 +22,8 @@ public class RendererSettings implements Cloneable {
     public boolean multiplyNormals = true;
 
     // Entity
+    public boolean bodyRotation = false;
+    public boolean headRotation = false;
     public double age = -1;
     public double walkAnimationSpeed = -1;
     public double walkAnimationPos = -1;
@@ -33,7 +35,7 @@ public class RendererSettings implements Cloneable {
     public boolean renderEntities = true;
     public boolean renderNametags = true;
     public boolean renderSelf = true;
-
+    public boolean renderParticles = true;
 
 
     public void updateMatrix(AbstractImageRenderer<?> renderer) {
@@ -48,8 +50,10 @@ public class RendererSettings implements Cloneable {
     public void applyAll(AbstractImageRenderer<?> renderer) {
         updateMatrix(renderer);
         renderer.setupTexture(width, height);
-        renderer.setLightingType(this.lightingType);
-        renderer.setMultiplyNormals(this.multiplyNormals);
+        if (!(renderer instanceof RegionImageRenderer)) {
+            renderer.setLightingType(this.lightingType);
+            renderer.setMultiplyNormals(this.multiplyNormals);
+        }
 
         if (renderer instanceof ItemImageRenderer renderer1) {
             renderer1.setDisplayContext(this.context);
@@ -57,15 +61,18 @@ public class RendererSettings implements Cloneable {
 
         if (renderer instanceof EntityImageRenderer renderer1) {
             renderer1.setAge((float) this.age);
-            renderer.setGlintTime((long) (this.age * 1000L / 20));
+            renderer1.setGlintTime((long) (this.age * 1000L / 20));
             renderer1.setWalkAnimationPos((float) this.walkAnimationPos);
             renderer1.setWalkAnimationSpeed((float) this.walkAnimationSpeed);
+            renderer1.setBodyRotation(this.bodyRotation);
+            renderer1.setHeadRotation(this.headRotation);
         }
 
         if (renderer instanceof RegionImageRenderer renderer1) {
             renderer1.setRenderNametags(this.renderNametags);
             renderer1.setRenderSelf(this.renderSelf);
             renderer1.setRenderEntities(this.renderEntities);
+            renderer1.setRenderParticles(this.renderParticles);
         }
     }
 

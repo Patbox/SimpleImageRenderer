@@ -59,6 +59,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     private boolean renderEntities = true;
     private boolean renderNametags = true;
     private boolean renderSelf = true;
+    private boolean renderParticles = true;
 
     private TextureTarget entityOutlineTarget;
 
@@ -122,10 +123,11 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             outline |= state.appearsGlowing();
             this.levelRenderState.entityRenderStates.add(state);
         }
-        this.entityOutlines = outline;
-        if (this.entityOutlines) {
+        this.levelRenderState.haveGlowingEntities = outline;
+        if (this.levelRenderState.haveGlowingEntities) {
             this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
         }
+        this.entityOutlines = levelRenderState.haveGlowingEntities;
 
         builder.discardAll();
     }
@@ -175,12 +177,22 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         return renderNametags;
     }
 
+    public boolean renderParticles() {
+        return renderParticles;
+    }
+
+    public void setRenderParticles(boolean renderParticles) {
+        this.renderParticles = renderParticles;
+    }
+
     public void setRenderNametags(boolean renderNametags) {
         this.renderNametags = renderNametags;
     }
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, Void> targetConsumer, boolean preview) {
+        RenderSystem.outputColorTextureOverride = null;
+        RenderSystem.outputDepthTextureOverride = null;
         var center = area.aabb().getCenter();
         var deltaTracker = DeltaTracker.ZERO;
 
@@ -246,20 +258,21 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             targets.entityOutline = frameGraphBuilder.importExternal("entity_outline", this.entityOutlineTarget);
         }
 
-        this.addMainPass(targets, frameGraphBuilder, poseStack.last().pose(), RenderSystem.getShaderFog(),
+        this.addMainPass(targets, frameGraphBuilder, poseStack, RenderSystem.getShaderFog(),
                 false, this.levelRenderState);
 
         PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
-        if (this.entityOutlines && outlinePostChain != null) {
+        if (this.levelRenderState.haveGlowingEntities && outlinePostChain != null) {
             outlinePostChain.addToFrame(frameGraphBuilder, this.renderTarget.width, this.renderTarget.height, targets);
         }
 
-        this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
-        this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, RenderSystem.getShaderFog());
-
+        if (this.renderParticles) {
+            this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
+            this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, RenderSystem.getShaderFog());
+        }
         frameGraphBuilder.execute(this.resourcePool);
 
-        if (this.entityOutlines) {
+        if (this.levelRenderState.haveGlowingEntities) {
             this.entityOutlineTarget.blitAndBlendToTexture(this.renderTarget.getColorTextureView());
         }
         RenderUtils.mainRenderTargetReplacement = null;
@@ -291,7 +304,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     private void addMainPass(
             LevelTargetBundle targets,
             FrameGraphBuilder frameGraphBuilder,
-            Matrix4f matrix,
+            PoseStack sourcePoseStack,
             GpuBufferSlice fog,
             boolean renderOutlines,
             LevelRenderState levelRenderState
@@ -321,21 +334,21 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         framePass.executes(
                 () -> {
                     RenderSystem.setShaderFog(fog);
-                    var chunkSections = this.prepareChunkRenders(matrix);
+                    var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
                     chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
                     //this.minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.LEVEL);
                     if (itemEntityHandle != null) {
                         itemEntityHandle.get().copyDepthFrom(this.minecraft.getMainRenderTarget());
                     }
 
-                    if (this.entityOutlines && entityOutlineHandle != null) {
+                    if (this.levelRenderState.haveGlowingEntities && entityOutlineHandle != null) {
                         RenderTarget renderTarget = entityOutlineHandle.get();
                         RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(renderTarget.getColorTexture(), 0, renderTarget.getDepthTexture(), 1.0);
                     }
 
                     PoseStack poseStack = new PoseStack();
-                    poseStack.mulPose(matrix);
-                    poseStack.last().normal().scale(1, -1, 1);
+                    poseStack.last().pose().set(sourcePoseStack.last().pose());
+                    //poseStack.last().normal().set(sourcePoseStack.last().normal());
 
                     MultiBufferSource.BufferSource bufferSource = this.renderBuffers.bufferSource();
                     MultiBufferSource.BufferSource bufferSource2 = this.renderBuffers.crumblingBufferSource();
@@ -377,7 +390,9 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                         }
                     }
 
+                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
                     this.featureRenderDispatcher.renderAllFeatures();
+
                     bufferSource.endLastBatch();
                     this.checkPoseStack(poseStack);
                     bufferSource.endBatch(RenderTypes.solidMovingBlock());

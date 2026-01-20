@@ -46,8 +46,10 @@ public class PreviewScreen<T> extends Screen {
     private SliderWithText ypos;
 
     private boolean startDraggingImage;
-    private double overflowX;
-    private double overflowY;
+    private double posOverflowX;
+    private double posOverflowY;
+    private double rotOverflowX;
+    private double rotOverflowY;
 
     protected PreviewScreen(AbstractImageRenderer<T> renderer, RendererSettings settings, BiConsumer<TextureTarget, T> consumer) {
         super(Component.translatable("title.simple_image_renderer.preview." + switch (renderer) {
@@ -118,7 +120,7 @@ public class PreviewScreen<T> extends Screen {
     @Override
     public boolean mouseReleased(MouseButtonEvent mouseButtonEvent) {
         this.startDraggingImage = false;
-        this.overflowX = this.overflowY = 0;
+        this.posOverflowX = this.posOverflowY = this.rotOverflowY = this.rotOverflowX = 0;
         return super.mouseReleased(mouseButtonEvent);
     }
 
@@ -126,18 +128,24 @@ public class PreviewScreen<T> extends Screen {
     public boolean mouseDragged(MouseButtonEvent mouseButtonEvent, double dx, double dy) {
         if (this.startDraggingImage) {
             var scale = this.minecraft.getWindow().getGuiScale();
-            if (this.minecraft.hasShiftDown()) {
-                var newX = this.xpos.get() + dx * scale * 1000 / (this.endX - this.startX) + this.overflowX;
-                var newY = this.ypos.get() + dy * scale * 1000 / (this.endY - this.startY) + this.overflowY;
+            if (mouseButtonEvent.hasShiftDown() || mouseButtonEvent.input() == 1) {
+                var newX = this.xpos.get() + dx * scale * 1000 / (this.endX - this.startX) + this.posOverflowX;
+                var newY = this.ypos.get() + dy * scale * 1000 / (this.endY - this.startY) + this.posOverflowY;
 
                 this.xpos.update((int) newX);
                 this.ypos.update((int) newY);
 
-                this.overflowX = newX - ((int) newX);
-                this.overflowY = newY - ((int) newY);
+                this.posOverflowX = newX - ((int) newX);
+                this.posOverflowY = newY - ((int) newY);
             } else {
-                this.yaw.update((int) Mth.wrapDegrees(this.yaw.get() + dx * scale / 2d));
-                this.pitch.update((int) Mth.wrapDegrees(this.pitch.get() - dy * scale / 2d));
+                var newYaw = this.yaw.get() + dx * scale / 2d + this.rotOverflowX;
+                var newPitch = this.pitch.get() - dy * scale / 2d + this.rotOverflowY;
+
+                this.yaw.update((int) Mth.wrapDegrees(newYaw));
+                this.pitch.update((int) Mth.wrapDegrees(newPitch));
+
+                this.rotOverflowX = newYaw - ((int) newYaw);
+                this.rotOverflowY = newPitch - ((int) newPitch);
             }
 
             return true;
@@ -223,7 +231,7 @@ public class PreviewScreen<T> extends Screen {
                 x -> (int) (Double.parseDouble(x) * 100), x -> Double.toString(x / 100d));
         list.accept(this.ypos.group());
 
-        {
+        if (!(this.renderer instanceof RegionImageRenderer)) {
             var group = LinearLayout.horizontal().spacing(4);
 
             // Rotate Light
@@ -257,6 +265,25 @@ public class PreviewScreen<T> extends Screen {
         if (this.renderer instanceof EntityImageRenderer entityImageRenderer) {
             var unchanged = value("unchanged").getString();
             DoubleFunction<String> format = x -> x < 0 ? unchanged : nf.format(x);
+            var group = LinearLayout.horizontal().spacing(4);
+
+            list.accept(group);
+
+            group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, entityImageRenderer::bodyRotation)
+                    .withValues(true, false)
+                    .create(0, 0, 110, 20, button("body_rotation"), (btn, val) -> {
+                        entityImageRenderer.setBodyRotation(val);
+                        settings.bodyRotation = val;
+                    })
+            );
+
+            group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, entityImageRenderer::headRotation)
+                    .withValues(true, false)
+                    .create(0, 0, 110, 20, button("head_rotation"), (btn, val) -> {
+                        entityImageRenderer.setHeadRotation(val);
+                        settings.headRotation = val;
+                    })
+            );
 
             list.accept(createIntSliderWithText(button("entity_age"), v -> {
                         entityImageRenderer.setAge((float) (settings.age = v));
@@ -293,8 +320,9 @@ public class PreviewScreen<T> extends Screen {
                     })
             );
             list.accept(group);
+            group = LinearLayout.horizontal().spacing(4);
 
-            list.accept(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderNametags)
+            group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderNametags)
                     .withValues(true, false)
                     .create(0, 0, 110, 20, button("show_name_tags"), (btn, val) -> {
                         regionImageRenderer.setRenderNametags(val);
@@ -302,6 +330,14 @@ public class PreviewScreen<T> extends Screen {
                     })
             );
 
+            group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderParticles)
+                    .withValues(true, false)
+                    .create(0, 0, 110, 20, button("show_particles"), (btn, val) -> {
+                        regionImageRenderer.setRenderParticles(val);
+                        settings.renderParticles = val;
+                    })
+            );
+            list.accept(group);
         }
     }
 

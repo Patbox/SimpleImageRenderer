@@ -30,8 +30,8 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ITEMS_3D));
 
         this.featureRenderDispatcher.getSubmitNodeStorage().submitBlock(poseStack, this.state, 15728880, OverlayTexture.NO_OVERLAY, 0);
-
         this.featureRenderDispatcher.renderAllFeatures();
+
         this.featureRenderDispatcher.endFrame();
         bufferSource.endBatch();
 
