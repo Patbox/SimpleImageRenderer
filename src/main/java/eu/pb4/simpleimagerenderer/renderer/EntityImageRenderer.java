@@ -30,7 +30,6 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
 
     @Override
     protected void renderInner(BiConsumer<TextureTarget, Entity> targetConsumer, boolean preview) {
-        var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
         minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI));
         var list = new ArrayList<EntityRenderState>();
 
@@ -71,6 +70,8 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
     }
 
     private void extractStates(Entity entity, Consumer<EntityRenderState> consumer) {
+        var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
+
         var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
 
         state.shadowPieces.clear();

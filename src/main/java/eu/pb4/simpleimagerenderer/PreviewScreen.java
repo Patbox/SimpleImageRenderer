@@ -102,7 +102,7 @@ public class PreviewScreen<T> extends Screen {
     @Override
     public boolean mouseScrolled(double x, double y, double dx, double dy) {
         if (this.isWithinImage(x, y)) {
-            this.scale.update((int) (this.scale.get() + dy * (this.minecraft.hasControlDown() ? 1 :this.minecraft.hasShiftDown() ? 4 : 8)));
+            this.scale.update((int) (this.scale.get() + dy * (this.minecraft.hasControlDown() ? 1 : this.minecraft.hasShiftDown() ? 4 : 8)));
             return true;
         }
 
@@ -252,15 +252,15 @@ public class PreviewScreen<T> extends Screen {
             );
 
             list.accept(group);
-
-            list.accept(CycleButton.<AbstractImageRenderer.LightmapType>builder(x -> Component.literal(x.name()), this.renderer::lightmapType)
-                    .withValues(AbstractImageRenderer.LightmapType.values())
-                    .create(0, 0, 120, 20, button("lightmap"), (btn, val) -> {
-                        this.renderer.setLightmapType(val);
-                        settings.lightmapType = val;
-                    })
-            );
         }
+        list.accept(CycleButton.<AbstractImageRenderer.LightmapType>builder(x -> Component.literal(x.name()), this.renderer::lightmapType)
+                .withValues(AbstractImageRenderer.LightmapType.values())
+                .create(0, 0, 120, 20, button("lightmap"), (btn, val) -> {
+                    this.renderer.setLightmapType(val);
+                    settings.lightmapType = val;
+                })
+        );
+
 
         if (this.renderer instanceof ItemImageRenderer itemImageRenderer) {
             list.accept(CycleButton.<ItemDisplayContext>builder(x -> Component.literal(x.name()), itemImageRenderer::displayContext)
@@ -449,20 +449,6 @@ public class PreviewScreen<T> extends Screen {
             guiGraphics.pose().popMatrix();
         }, true);
     }
-
-
-    public abstract static class SliderButton extends AbstractSliderButton {
-        public SliderButton(int i, int j, int k, int l, Component component, double d) {
-            super(i, j, k, l, component, d);
-        }
-
-
-        @Override
-        public void setValue(double d) {
-            super.setValue(d);
-        }
-    }
-
 
     private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max) {
         return createIntEditBox(name, consumer, supplier, width, min, max, (max + min) / 2, Integer::parseInt, String::valueOf);
@@ -661,7 +647,7 @@ public class PreviewScreen<T> extends Screen {
     }
 
     private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int min, int max, int defaultValue,
-                                                  IntFunction<String> display, ToIntFunction<String> parser, IntFunction<String> textBoxString) {
+                                                   IntFunction<String> display, ToIntFunction<String> parser, IntFunction<String> textBoxString) {
         var obj = new Object() {
             SliderButton slider;
             EditBox editBox;
@@ -689,7 +675,20 @@ public class PreviewScreen<T> extends Screen {
         }, obj.slider, obj.editBox, group);
     }
 
-    public record SliderWithText(IntSupplier supplier, IntConsumer consumer, SliderButton slider, EditBox editBox, LayoutElement group) {
+    public abstract static class SliderButton extends AbstractSliderButton {
+        public SliderButton(int i, int j, int k, int l, Component component, double d) {
+            super(i, j, k, l, component, d);
+        }
+
+
+        @Override
+        public void setValue(double d) {
+            super.setValue(d);
+        }
+    }
+
+    public record SliderWithText(IntSupplier supplier, IntConsumer consumer, SliderButton slider, EditBox editBox,
+                                 LayoutElement group) {
         public void update(int value) {
             this.consumer.accept(value);
         }

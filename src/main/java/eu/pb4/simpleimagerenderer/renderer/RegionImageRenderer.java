@@ -23,6 +23,8 @@ import eu.pb4.simpleimagerenderer.util.BoxyFrustum;
 import eu.pb4.simpleimagerenderer.util.ManualCamera;
 import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import eu.pb4.simpleimagerenderer.util.renderregion.AreaRenderSectionRegion;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.TextureFilteringMethod;
@@ -279,7 +281,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
         targetConsumer.accept(this.renderTarget, null);
         targets.clear();
-
+// Todo: Refactor this all to match latest changes in LevelRenderer
         targets.main = oldTargetMain;
         targets.translucent = oldTargetTranslucent;
         targets.itemEntity = oldTargetItemEntity;
@@ -333,6 +335,8 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         var entityOutlineHandle = targets.entityOutline;
         framePass.executes(
                 () -> {
+                    var uiLightmap = this.lightmapType.useUiLightmap(this.useUiLightmapByDefault);
+
                     RenderSystem.setShaderFog(fog);
                     var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
                     chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
@@ -354,16 +358,18 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     MultiBufferSource.BufferSource bufferSource2 = this.renderBuffers.crumblingBufferSource();
 
                     if (this.renderEntities) {
+
                         AvatarRenderState selfState = null;
                         List<Component> nameTags = this.renderNametags ? null : new ArrayList<>(levelRenderState.entityRenderStates.size());
+                        IntList lights = uiLightmap ? new IntArrayList(levelRenderState.entityRenderStates.size()) : null;
 
-                        if (!this.renderSelf || !this.renderNametags) {
+                        if (!this.renderSelf || !this.renderNametags || uiLightmap) {
                             for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
                                 var state = levelRenderState.entityRenderStates.get(i);
                                 if (!this.renderSelf && state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == this.minecraft.player.getId()) {
                                     selfState = avatarRenderState;
                                     levelRenderState.entityRenderStates.remove(i);
-                                    if (this.renderNametags) {
+                                    if (this.renderNametags && !uiLightmap) {
                                         break;
                                     } else {
                                         continue;
@@ -373,6 +379,10 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                                     assert nameTags != null;
                                     nameTags.add(state.nameTag);
                                     state.nameTag = null;
+                                }
+                                if (uiLightmap) {
+                                    lights.add(state.lightCoords);
+                                    state.lightCoords = 0;
                                 }
                             }
                         }
@@ -385,12 +395,34 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                             }
                         }
 
+                        if (lights != null) {
+                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
+                                levelRenderState.entityRenderStates.get(i).lightCoords = lights.getInt(i);
+                            }
+                        }
+
                         if (selfState != null) {
                             levelRenderState.entityRenderStates.add(selfState);
                         }
+
                     }
 
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
+                    {
+                        IntList lights = uiLightmap ? new IntArrayList(levelRenderState.blockEntityRenderStates.size()) : null;
+                        if (uiLightmap) {
+                            for (var state : levelRenderState.blockEntityRenderStates) {
+                                lights.add(state.lightCoords);
+                                state.lightCoords = 0;
+                            }
+                        }
+                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
+
+                        if (lights != null) {
+                            for (int i = 0; i < levelRenderState.blockEntityRenderStates.size(); i++) {
+                                levelRenderState.blockEntityRenderStates.get(i).lightCoords = lights.getInt(i);
+                            }
+                        }
+                    }
                     this.featureRenderDispatcher.renderAllFeatures();
 
                     bufferSource.endLastBatch();
@@ -431,7 +463,6 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     }
 
                     chunkSections.renderGroup(ChunkSectionLayerGroup.TRANSLUCENT, this.chunkLayerSampler);
-                    chunkSections.renderGroup(ChunkSectionLayerGroup.TRIPWIRE, this.chunkLayerSampler);
 
                     bufferSource.endBatch();
                 }
