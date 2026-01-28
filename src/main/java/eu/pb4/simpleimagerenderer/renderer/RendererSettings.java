@@ -36,6 +36,8 @@ public class RendererSettings implements Cloneable {
     public boolean renderNametags = true;
     public boolean renderSelf = true;
     public boolean renderParticles = true;
+    public boolean renderEdge = true;
+    public boolean ignoreLighting = false;
 
 
     public void updateMatrix(AbstractImageRenderer<?> renderer) {
@@ -73,6 +75,8 @@ public class RendererSettings implements Cloneable {
             renderer1.setRenderSelf(this.renderSelf);
             renderer1.setRenderEntities(this.renderEntities);
             renderer1.setRenderParticles(this.renderParticles);
+            renderer1.setRenderEdge(this.renderEdge);
+            renderer1.setIgnoreLighting(this.ignoreLighting);
         }
     }
 

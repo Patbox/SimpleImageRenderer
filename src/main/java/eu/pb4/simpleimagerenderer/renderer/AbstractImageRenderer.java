@@ -1,6 +1,7 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -62,7 +63,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.multiplyNormals = multiplyNormals;
     }
 
-    public void render(BiConsumer<TextureTarget, T> targetConsumer, boolean preview) {
+    public void render(RenderConsumer<T> targetConsumer, boolean preview) {
         RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
         var oldOutputColor = RenderSystem.outputColorTextureOverride;
         var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
@@ -71,7 +72,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.outputColorTextureOverride = renderTarget.getColorTextureView();
         RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
         RenderSystem.backupProjectionMatrix();
-        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), projectionType);
+        // Technically not correct, but this fixes issues with z-ordering of entity shadows and alike.
+        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.PERSPECTIVE);
         try {
             this.clearBuffer();
             this.renderInner(targetConsumer, preview);
@@ -87,10 +89,14 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     protected void clearBuffer() {
-        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(renderTarget.getColorTexture(), 0, renderTarget.getDepthTexture(), 1);
+        clearBuffer(this.renderTarget);
     }
 
-    protected abstract void renderInner(BiConsumer<TextureTarget, T> targetConsumer, boolean preview);
+    protected void clearBuffer(TextureTarget target) {
+        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), 0, target.getDepthTexture(), 1);
+    }
+
+    protected abstract void renderInner(RenderConsumer<T> targetConsumer, boolean preview);
 
 
     public void setupTexture(int width) {
@@ -144,6 +150,10 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         } else {
             poseStack.last().pose().mul(this.matrix);
         }
+
+        if (this.projectionType == ProjectionType.PERSPECTIVE) {
+            poseStack.scale(1, -1, 1);
+        }
     }
 
     public boolean isSingleRender() {
@@ -186,7 +196,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         }
     }
 
-    /*public interface RenderConsumer<T> {
+    public interface RenderConsumer<T> {
         void rendered(RenderTarget target, T object, int frame);
-    }*/
+    }
 }

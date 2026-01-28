@@ -33,7 +33,7 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
     }
 
     @Override
-    protected void renderInner(BiConsumer<TextureTarget, ItemStack> targetConsumer, boolean preview) {
+    protected void renderInner(RenderConsumer<ItemStack> targetConsumer, boolean preview) {
         var poseStack = new PoseStack();
         poseStack.pushPose();
         this.multiplyPoseStack(poseStack);
@@ -41,14 +41,14 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
         if (preview) {
             var stack = this.stacks.get((int) ((System.currentTimeMillis() / 500) % this.stacks.size()));
             renderSingleItem(poseStack, stack);
-            targetConsumer.accept(this.renderTarget, stack);
+            targetConsumer.rendered(this.renderTarget, stack, -1);
             return;
         }
         for (var stack : stacks) {
             poseStack.pushPose();
             this.clearBuffer();
             renderSingleItem(poseStack, stack);
-            targetConsumer.accept(this.renderTarget, stack);
+            targetConsumer.rendered(this.renderTarget, stack, -1);
             poseStack.popPose();
         }
     }
@@ -56,7 +56,12 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
     protected void renderSingleItem(PoseStack poseStack, ItemStack stack) {
         var state = new TrackingItemStackRenderState();
         minecraft.getItemModelResolver().updateForTopItem(state, stack, this.displayContext, null, null, 0);
-        minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT));
+        var light = this.lightingType.getEntry(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT);
+        minecraft.gameRenderer.getLighting().setupFor(light);
+        if (light == Lighting.Entry.LEVEL) {
+            poseStack.last().normal().scale(1, -1, 1);
+        }
+
         //minecraft.options.glintSpeed()
         state.submit(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), 15728880, OverlayTexture.NO_OVERLAY, 0);
 

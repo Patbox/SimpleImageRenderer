@@ -1,7 +1,13 @@
-- Improved Region rendering to match closer Vanilla logic (and also render particles and glowing outline).
+I- Improved Region rendering to match closer Vanilla logic (and also render particles and glowing entity outline).
 - Block/Entity render command will now default to rendering targeted block/entity.
+- Block renderer should now correctly render fluids.
+- Region rendering can now toggle lighting (previously was 26.1 only).
+- You can disable rendering of area edges.
 - Disabled Rotate Light and Lighting settings in region renderer, as they didn't work fully.
 - Rendering an entity will now include it's passengers.
 - You can now toggle Body Rotations and Head Rotations for entity rendering.
 - Improved preview mouse dragging functionality to capture smaller rotations.
 - Using right mouse button on preview now shift position around.
+- Fixed the sky flickering while using area renderer at sunset/rise.
+- Reworked the UI to make it look and feel nicer.
+- You can now render tags as a group of items.

@@ -18,6 +18,7 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexSorting;
+import com.mojang.math.Transformation;
 import eu.pb4.simpleimagerenderer.mixin.LevelRendererAccessor;
 import eu.pb4.simpleimagerenderer.util.BoxyFrustum;
 import eu.pb4.simpleimagerenderer.util.ManualCamera;
@@ -30,6 +31,9 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.chunk.*;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.entity.state.DisplayEntityRenderState;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.LevelRenderState;
 import net.minecraft.client.renderer.state.ParticlesRenderState;
@@ -38,23 +42,29 @@ import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.BlockDestructionProgress;
+import net.minecraft.world.entity.Display;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
+import org.jspecify.annotations.Nullable;
 
 import java.util.*;
 import java.util.function.BiConsumer;
 
 
-public class RegionImageRenderer extends AbstractImageRenderer<Void> {
+public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
     private final List<Section> sections = new ArrayList<>();
     private final LevelRenderState levelRenderState = new LevelRenderState();
     private final CrossFrameResourcePool resourcePool = new CrossFrameResourcePool(3);
     private final ParticlesRenderState particlesRenderState = new ParticlesRenderState();
-
-    private final boolean entityOutlines;
+    private final List<StateBackup> entityStateBackup = new ArrayList<>();
+    private final List<StateBackup> blockEntityStateBackup = new ArrayList<>();
 
     private final GpuSampler chunkLayerSampler;
     private final BlockBox area;
+    private final AreaRenderSectionRegion region;
+    @Nullable
+    private final EntityRenderState selfEntityState;
 
     private boolean renderEntities = true;
     private boolean renderNametags = true;
@@ -62,8 +72,10 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
     private boolean renderParticles = true;
 
     private TextureTarget entityOutlineTarget;
+    private boolean sectionsDirty = false;
+    private boolean statesDirty = false;
 
-    public RegionImageRenderer(Minecraft minecraft, int width, int height, ClientLevel level, BlockBox area) {
+    public RegionImageRenderer(Minecraft minecraft, int width, int height, ClientLevel level, BlockBox area, boolean renderEdge, boolean ignoreLighting) {
         super(minecraft, width, height);
         this.area = area;
 
@@ -73,31 +85,10 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, i, OptionalDouble.empty());
         }
 
-        var region = new AreaRenderSectionRegion(level, area);
-        var compiler = new SectionCompiler(minecraft.getBlockRenderer(), minecraft.getBlockEntityRenderDispatcher());
-        var sectionStart = SectionPos.of(area.min());
-        var sectionEnd = SectionPos.of(area.max());
-        var builder = minecraft.renderBuffers().fixedBufferPack();
-        var iter = SectionPos.betweenClosedStream(sectionStart.x(), sectionStart.y(), sectionStart.z(), sectionEnd.x(), sectionEnd.y(), sectionEnd.z()).iterator();
-        while (iter.hasNext()) {
-            builder.discardAll();
-            var pos = iter.next();
-            var results = compiler.compile(pos, region, VertexSorting.ORTHOGRAPHIC_Z, builder);
-            var compiledSectionMesh = new CompiledSectionMesh(TranslucencyPointOfView.of(Vec3.ZERO, 0), results);
-            for (var layer : ChunkSectionLayer.values()) {
-                if (results.renderedLayers.containsKey(layer)) {
-                    var meshData = results.renderedLayers.get(layer);
-                    compiledSectionMesh.uploadMeshLayer(layer, meshData, pos.asLong());
-                }
-            }
-            if (compiledSectionMesh.hasRenderableLayers()) {
-                this.sections.add(new Section(pos.origin(), compiledSectionMesh));
-            } else {
-                compiledSectionMesh.close();
-            }
-            results.release();
-        }
-        region = null;
+        this.region = new AreaRenderSectionRegion(level, area);
+        this.region.setAllowExternalLookup(!renderEdge);
+        this.region.setIgnoreLighting(ignoreLighting);
+        this.rebuildSections();
 
         for (var section : this.sections) {
             for (var be : section.sectionMesh.getRenderableBlockEntities()) {
@@ -117,18 +108,100 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             }
         }
 
-        var outline = false;
+        for (var state : this.levelRenderState.blockEntityRenderStates) {
+            this.blockEntityStateBackup.add(new StateBackup(null, state.lightCoords));
+        }
+
+        EntityRenderState self = null;
+
         for (var entity : level.getEntities(null, area.aabb().inflate(0.01f))) {
             var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
-            outline |= state.appearsGlowing();
+            this.levelRenderState.haveGlowingEntities |= state.appearsGlowing();
+            if (state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == minecraft.player.getId()) {
+                self = state;
+                continue;
+            }
+
             this.levelRenderState.entityRenderStates.add(state);
         }
-        this.levelRenderState.haveGlowingEntities = outline;
+
+        this.selfEntityState = self;
+
+        if (self != null) {
+            this.levelRenderState.entityRenderStates.add(self);
+        }
+
+        for (var state : this.levelRenderState.entityRenderStates) {
+            this.entityStateBackup.add(new StateBackup(state.nameTag, state.lightCoords));
+        }
+
         if (this.levelRenderState.haveGlowingEntities) {
             this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
         }
-        this.entityOutlines = levelRenderState.haveGlowingEntities;
 
+        this.updateStates();
+    }
+
+    public void updateStates() {
+        this.statesDirty = false;
+        if (this.selfEntityState != null) {
+            if (this.renderSelf && (this.levelRenderState.entityRenderStates.isEmpty()
+                    || this.levelRenderState.entityRenderStates.getLast() != this.selfEntityState)) {
+                this.levelRenderState.entityRenderStates.add(this.selfEntityState);
+            } else if (!this.renderSelf && !this.levelRenderState.entityRenderStates.isEmpty()
+                    && this.levelRenderState.entityRenderStates.getLast() == this.selfEntityState) {
+                this.levelRenderState.entityRenderStates.removeLast();
+            }
+        }
+
+        for (var i = 0; i < this.levelRenderState.entityRenderStates.size(); i++) {
+            var state = this.levelRenderState.entityRenderStates.get(i);
+            var backup = this.entityStateBackup.get(i);
+            state.lightCoords = !this.ignoreLighting() ? backup.lightCoords : 15728880;
+            state.nameTag = this.renderNametags ? backup.nameTag : null;
+        }
+
+
+        for (var i = 0; i < this.levelRenderState.blockEntityRenderStates.size(); i++) {
+            var state = this.levelRenderState.blockEntityRenderStates.get(i);
+            var backup = this.blockEntityStateBackup.get(i);
+            state.lightCoords = !this.ignoreLighting() ? backup.lightCoords : 15728880;
+        }
+    }
+
+
+    private void rebuildSections() {
+        this.sectionsDirty = false;
+        for (var section : this.sections) {
+            section.sectionMesh.close();
+        }
+        this.sections.clear();
+
+        var sorting = VertexSorting.byDistance(this.getCameraPos());
+
+        var compiler = new SectionCompiler(minecraft.getBlockRenderer(), minecraft.getBlockEntityRenderDispatcher());
+        var sectionStart = SectionPos.of(area.min());
+        var sectionEnd = SectionPos.of(area.max());
+        var builder = minecraft.renderBuffers().fixedBufferPack();
+        var iter = SectionPos.betweenClosedStream(sectionStart.x(), sectionStart.y(), sectionStart.z(), sectionEnd.x(), sectionEnd.y(), sectionEnd.z()).iterator();
+        while (iter.hasNext()) {
+            builder.discardAll();
+            var pos = iter.next();
+            var results = compiler.compile(pos, region, sorting, builder);
+            var compiledSectionMesh = new CompiledSectionMesh(TranslucencyPointOfView.of(Vec3.ZERO, 0), results);
+            for (var layer : ChunkSectionLayer.values()) {
+                if (results.renderedLayers.containsKey(layer)) {
+                    var meshData = results.renderedLayers.get(layer);
+                    compiledSectionMesh.uploadMeshLayer(layer, meshData, pos.asLong());
+                }
+            }
+            if (compiledSectionMesh.hasRenderableLayers()) {
+                this.sections.add(new Section(pos.origin(), compiledSectionMesh));
+            } else {
+                compiledSectionMesh.close();
+            }
+            results.release();
+        }
         builder.discardAll();
     }
 
@@ -163,6 +236,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
     public void setRenderEntities(boolean renderEntities) {
         this.renderEntities = renderEntities;
+        this.statesDirty = true;
     }
 
     public boolean renderSelf() {
@@ -171,6 +245,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
     public void setRenderSelf(boolean renderSelf) {
         this.renderSelf = renderSelf;
+        this.statesDirty = true;
     }
 
     public boolean renderNametags() {
@@ -187,10 +262,28 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
 
     public void setRenderNametags(boolean renderNametags) {
         this.renderNametags = renderNametags;
+        this.statesDirty = true;
+    }
+
+    public boolean renderEdge() {
+        return !this.region.allowExternalLookup();
+    }
+
+    public void setRenderEdge(boolean value) {
+        if (renderEdge() != value) {
+            this.region.setAllowExternalLookup(!value);
+            this.sectionsDirty = true;
+        }
     }
 
     @Override
-    protected void renderInner(BiConsumer<TextureTarget, Void> targetConsumer, boolean preview) {
+    protected void renderInner(RenderConsumer<BlockBox> targetConsumer, boolean preview) {
+        if (this.sectionsDirty) {
+            this.rebuildSections();
+        }
+        if (this.statesDirty) {
+            this.updateStates();
+        }
         RenderSystem.outputColorTextureOverride = null;
         RenderSystem.outputDepthTextureOverride = null;
         var center = area.aabb().getCenter();
@@ -223,14 +316,16 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
                 );
 
+        this.multiplyNormals = false;
+
         poseStack.scale(width, -width, width);
+        //poseStack.scale(1, -1, 1);
+        poseStack.last().normal().scale(1, -1, 1);
         var scale = 1f / ((area.sizeX() + area.sizeY() + area.sizeZ()) / 3f);
         poseStack.scale(scale, scale, scale);
 
         var targets = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTargets();
-        minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.LEVEL));
         RenderUtils.mainRenderTargetReplacement = this.renderTarget;
-        FrameGraphBuilder frameGraphBuilder = new FrameGraphBuilder();
 
         var oldTargetMain = targets.main;
         var oldTargetTranslucent = targets.translucent;
@@ -241,6 +336,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         var oldEntityOutline = targets.entityOutline;
 
         targets.clear();
+        FrameGraphBuilder frameGraphBuilder = new FrameGraphBuilder();
 
         targets.main = frameGraphBuilder.importExternal("main", this.renderTarget);
         /*var renderTargetDescriptor = new RenderTargetDescriptor(this.renderTarget.width, this.renderTarget.height, true, 0);
@@ -258,8 +354,11 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             targets.entityOutline = frameGraphBuilder.importExternal("entity_outline", this.entityOutlineTarget);
         }
 
-        this.addMainPass(targets, frameGraphBuilder, poseStack, RenderSystem.getShaderFog(),
-                false, this.levelRenderState);
+        var modelView = RenderSystem.getModelViewStack();
+        modelView.pushMatrix();
+        modelView.mul(poseStack.last().pose());
+
+        this.addMainPass(targets, frameGraphBuilder, poseStack, RenderSystem.getShaderFog(), false, this.levelRenderState);
 
         PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
         if (this.levelRenderState.haveGlowingEntities && outlinePostChain != null) {
@@ -277,8 +376,10 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         }
         RenderUtils.mainRenderTargetReplacement = null;
 
-        targetConsumer.accept(this.renderTarget, null);
+        targetConsumer.rendered(this.renderTarget, this.area, -1);
         targets.clear();
+
+        modelView.popMatrix();
 
         targets.main = oldTargetMain;
         targets.translucent = oldTargetTranslucent;
@@ -334,9 +435,10 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         framePass.executes(
                 () -> {
                     RenderSystem.setShaderFog(fog);
+                    this.minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.LEVEL);
+
                     var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
                     chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
-                    //this.minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.LEVEL);
                     if (itemEntityHandle != null) {
                         itemEntityHandle.get().copyDepthFrom(this.minecraft.getMainRenderTarget());
                     }
@@ -347,47 +449,12 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
                     }
 
                     PoseStack poseStack = new PoseStack();
-                    poseStack.last().pose().set(sourcePoseStack.last().pose());
-                    //poseStack.last().normal().set(sourcePoseStack.last().normal());
 
                     MultiBufferSource.BufferSource bufferSource = this.renderBuffers.bufferSource();
                     MultiBufferSource.BufferSource bufferSource2 = this.renderBuffers.crumblingBufferSource();
 
                     if (this.renderEntities) {
-                        AvatarRenderState selfState = null;
-                        List<Component> nameTags = this.renderNametags ? null : new ArrayList<>(levelRenderState.entityRenderStates.size());
-
-                        if (!this.renderSelf || !this.renderNametags) {
-                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
-                                var state = levelRenderState.entityRenderStates.get(i);
-                                if (!this.renderSelf && state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == this.minecraft.player.getId()) {
-                                    selfState = avatarRenderState;
-                                    levelRenderState.entityRenderStates.remove(i);
-                                    if (this.renderNametags) {
-                                        break;
-                                    } else {
-                                        continue;
-                                    }
-                                }
-                                if (!this.renderNametags) {
-                                    assert nameTags != null;
-                                    nameTags.add(state.nameTag);
-                                    state.nameTag = null;
-                                }
-                            }
-                        }
-
                         ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
-
-                        if (nameTags != null) {
-                            for (int i = 0; i < levelRenderState.entityRenderStates.size(); i++) {
-                                levelRenderState.entityRenderStates.get(i).nameTag = nameTags.get(i);
-                            }
-                        }
-
-                        if (selfState != null) {
-                            levelRenderState.entityRenderStates.add(selfState);
-                        }
                     }
 
                     ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
@@ -454,12 +521,9 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
             if (resourceHandle2 != null) {
                 resourceHandle2.get().copyDepthFrom(resourceHandle.get());
             }
-            var oldMatrix = new Matrix4f(RenderSystem.getModelViewMatrix());
-            RenderSystem.getModelViewMatrix().set(pose);
             this.particlesRenderState.submit(this.submitNodeStorage, this.levelRenderState.cameraRenderState);
             this.featureRenderDispatcher.renderAllFeatures();
             this.particlesRenderState.reset();
-            RenderSystem.getModelViewMatrix().set(oldMatrix);
         });
     }
 
@@ -469,22 +533,25 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         }
     }
 
+    private Vector3f getCameraPos() {
+        var camPos = new Vector4f(0, 0, -1, 0);
+        camPos.mul(new Matrix4f(projectionMatrix).invert()).mul(new Matrix4f(this.matrix).invert());
+
+        return new Vector3f(camPos.x, camPos.y, camPos.z).normalize().mul(1000).mul(1, -1, 1).add(this.area.aabb().getCenter().toVector3f());
+    }
+
 
     @Override
     public void updateMatrix(Matrix4f matrix4f, Quaternionf quaternionf) {
         super.updateMatrix(matrix4f, quaternionf);
-
-        var camPos = new Vector4f(0, 0, -1, 0);
-        camPos.mul(new Matrix4f(projectionMatrix).invert()).mul(new Matrix4f(matrix4f).invert());
-
-        var vec = new Vector3f(camPos.x, camPos.y, camPos.z).normalize().mul(1000).mul(1, -1, 1).add(this.area.aabb().getCenter().toVector3f());
+        var vec = this.getCameraPos();
         var vec3 = new Vec3(vec);
         var builder = minecraft.renderBuffers().fixedBufferPack();
 
         builder.discardAll();
         for (var section : this.sections) {
             var sectionId = SectionPos.asLong(section.origin);
-            var pow = TranslucencyPointOfView.of(new Vec3(vec), sectionId);
+            var pow = TranslucencyPointOfView.of(vec3, sectionId);
 
             var sortState = section.sectionMesh.getTransparencyState();
             if (sortState == null || !section.sectionMesh.hasTranslucentGeometry() || !section.sectionMesh.isDifferentPointOfView(pow))
@@ -583,6 +650,20 @@ public class RegionImageRenderer extends AbstractImageRenderer<Void> {
         return new ChunkSectionsToRender(blockAtlas, drawsByLayer, largestIndexCount, chunkSectionInfos);
     }
 
+    public void setIgnoreLighting(boolean ignoreLighting) {
+        if (this.region.ignoreLighting() != ignoreLighting) {
+            this.region.setIgnoreLighting(ignoreLighting);
+            this.sectionsDirty = true;
+            this.statesDirty = true;
+        }
+    }
+
+    public boolean ignoreLighting() {
+        return this.region.ignoreLighting();
+    }
+
     public record Section(BlockPos origin, CompiledSectionMesh sectionMesh) {
     }
+
+    record StateBackup(Component nameTag, int lightCoords) {}
 }

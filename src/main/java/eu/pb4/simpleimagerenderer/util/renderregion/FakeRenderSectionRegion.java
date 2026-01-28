@@ -63,18 +63,27 @@ public abstract class FakeRenderSectionRegion extends RenderSectionRegion {
     @Override
     public abstract @Nullable BlockEntity getBlockEntity(BlockPos blockPos);
 
+    public BlockPos limitPos(BlockPos pos) {
+        return pos;
+    }
+
 
     public static class CustomLightEngine extends LevelLightEngine {
+        public static final CustomLightEngine FULL_BRIGHT = new CustomLightEngine(x -> 15, x -> 15);
         @Nullable
         private final LayerLightEventListener blockLight;
         @Nullable
         private final LayerLightEventListener skyLight;
 
-        public CustomLightEngine(FakeRenderSectionRegion render, ToIntFunction<BlockPos> blockLight, ToIntFunction<BlockPos> skyLight) {
+        public CustomLightEngine(ToIntFunction<BlockPos> blockLight, ToIntFunction<BlockPos> skyLight) {
+            this(EmptyBlockGetter.INSTANCE, blockLight, skyLight);
+        }
+
+        public CustomLightEngine(BlockGetter render, ToIntFunction<BlockPos> blockLight, ToIntFunction<BlockPos> skyLight) {
             this(render, blockLight != null ? new FakeLightLayer(blockLight) : null, skyLight != null ? new FakeLightLayer(skyLight) : null);
         }
 
-        public CustomLightEngine(FakeRenderSectionRegion render, LayerLightEventListener blockLight, LayerLightEventListener skyLight) {
+        public CustomLightEngine(BlockGetter render, LayerLightEventListener blockLight, LayerLightEventListener skyLight) {
             super(new LightChunkGetter() {
                 @Override
                 public @Nullable LightChunk getChunkForLighting(int i, int j) {

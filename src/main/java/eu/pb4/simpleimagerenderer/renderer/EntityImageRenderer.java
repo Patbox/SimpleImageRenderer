@@ -29,10 +29,8 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
     }
 
     @Override
-    protected void renderInner(BiConsumer<TextureTarget, Entity> targetConsumer, boolean preview) {
-        minecraft.gameRenderer.getLighting().setupFor(this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI));
+    protected void renderInner(RenderConsumer<Entity> targetConsumer, boolean preview) {
         var list = new ArrayList<EntityRenderState>();
-
         this.extractStates(entity, list::add);
         var firstState = list.getFirst();
 
@@ -53,6 +51,12 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
         var maxDim = 1 /  (float) (Math.max(bHeight, bWidth) + 0.5f);
         poseStack.scale(maxDim, maxDim, maxDim);
 
+        var light = this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI);
+        minecraft.gameRenderer.getLighting().setupFor(light);
+        if (light == Lighting.Entry.LEVEL) {
+            poseStack.last().normal().scale(1, -1, 1);
+        }
+
         var cameraState = new CameraRenderState();
         cameraState.orientation = this.cameraOrientation;
 
@@ -65,7 +69,7 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
         this.featureRenderDispatcher.endFrame();
         this.bufferSource.endBatch();
 
-        targetConsumer.accept(this.renderTarget, this.entity);
+        targetConsumer.rendered(this.renderTarget, this.entity, -1);
         poseStack.popPose();
     }
 

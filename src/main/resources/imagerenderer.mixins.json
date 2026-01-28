@@ -13,6 +13,7 @@
     "ParticleEngineAccessor"
   ],
   "client": [
+    "SectionCompilerMixin",
     "TextureTransformMixin"
   ],
   "injectors": {

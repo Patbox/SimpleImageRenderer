@@ -22,8 +22,8 @@ public class ManualCamera extends Camera {
         var acc = (CameraAccessor) this;
 
         acc.getRotation().set(quaternionf);
-        CameraAccessor.getFORWARDS().rotate(quaternionf, acc.getForwards());
-        CameraAccessor.getUP().rotate(quaternionf, acc.getUp());
-        CameraAccessor.getLEFT().rotate(quaternionf, acc.getLeft());
+        //CameraAccessor.getFORWARDS().rotate(acc.getRotation(), acc.getForwards());
+        //CameraAccessor.getUP().rotate(acc.getRotation(), acc.getUp());
+        //CameraAccessor.getLEFT().rotate(acc.getRotation(), acc.getLeft());
     }
 }
