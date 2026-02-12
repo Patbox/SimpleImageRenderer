@@ -1,5 +1,6 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
+import com.mojang.blaze3d.ProjectionType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemDisplayContext;
 import org.joml.Matrix4f;
@@ -41,10 +42,22 @@ public class RendererSettings implements Cloneable {
 
 
     public void updateMatrix(AbstractImageRenderer<?> renderer) {
-        renderer.updateMatrix(new Matrix4f()
-                        .translate(x / 1000f * renderer.width, y / 1000f * renderer.height, z / 1000f * renderer.width)
-                        .scale(this.scale / 100f)
-                .rotateXYZ(this.pitch * Mth.DEG_TO_RAD, this.yaw * Mth.DEG_TO_RAD, this.roll * Mth.DEG_TO_RAD),
+        var mat = new Matrix4f();
+
+        if (renderer.projectionType() == ProjectionType.ORTHOGRAPHIC) {
+            mat
+                    .translate(x / 1000f * renderer.width, y / 1000f * renderer.height, z / 1000f * renderer.width)
+                    .scale(this.scale / 100f)
+                    .rotateXYZ(this.pitch * Mth.DEG_TO_RAD, this.yaw * Mth.DEG_TO_RAD, this.roll * Mth.DEG_TO_RAD);
+        } else {
+            mat
+                    .rotateXYZ(this.pitch * Mth.DEG_TO_RAD, this.yaw * Mth.DEG_TO_RAD, this.roll * Mth.DEG_TO_RAD)
+                    .translate(x / 1000f * renderer.width, y / 1000f * renderer.height, z / 1000f * renderer.width)
+                    .scale(this.scale / 100f)
+            ;
+        }
+
+        renderer.updateMatrix(mat,
                 new Quaternionf().rotateZYX(this.roll * Mth.DEG_TO_RAD, -this.yaw * Mth.DEG_TO_RAD, this.pitch * Mth.DEG_TO_RAD)
         );
     }

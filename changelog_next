@@ -1,4 +1,4 @@
-I- Improved Region rendering to match closer Vanilla logic (and also render particles and glowing entity outline).
+- Improved Region rendering to match closer Vanilla logic (and also render particles and glowing entity outline).
 - Block/Entity render command will now default to rendering targeted block/entity.
 - Block renderer should now correctly render fluids.
 - Region rendering can now toggle lighting (previously was 26.1 only).
@@ -10,4 +10,5 @@ I- Improved Region rendering to match closer Vanilla logic (and also render part
 - Using right mouse button on preview now shift position around.
 - Fixed the sky flickering while using area renderer at sunset/rise.
 - Reworked the UI to make it look and feel nicer.
+- Preview now scales up visually to take as much of the screen as it can (can be toggle off to show real size).
 - You can now render tags as a group of items.

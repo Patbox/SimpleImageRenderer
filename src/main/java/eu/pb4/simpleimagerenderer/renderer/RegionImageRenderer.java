@@ -18,7 +18,7 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexSorting;
-import com.mojang.math.Transformation;
+import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
 import eu.pb4.simpleimagerenderer.mixin.LevelRendererAccessor;
 import eu.pb4.simpleimagerenderer.util.BoxyFrustum;
 import eu.pb4.simpleimagerenderer.util.ManualCamera;
@@ -31,9 +31,8 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.chunk.*;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
-import net.minecraft.client.renderer.entity.state.DisplayEntityRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
-import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
+import net.minecraft.client.renderer.fog.FogRenderer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.LevelRenderState;
 import net.minecraft.client.renderer.state.ParticlesRenderState;
@@ -42,14 +41,11 @@ import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.BlockDestructionProgress;
-import net.minecraft.world.entity.Display;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
 import org.jspecify.annotations.Nullable;
 
 import java.util.*;
-import java.util.function.BiConsumer;
 
 
 public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
@@ -75,14 +71,14 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
     private boolean sectionsDirty = false;
     private boolean statesDirty = false;
 
+
     public RegionImageRenderer(Minecraft minecraft, int width, int height, ClientLevel level, BlockBox area, boolean renderEdge, boolean ignoreLighting) {
         super(minecraft, width, height);
         this.area = area;
 
         {
-            int i = this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.ANISOTROPIC ? this.minecraft.options.maxAnisotropyValue() : 1;
             this.chunkLayerSampler = RenderSystem.getDevice()
-                    .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, i, OptionalDouble.empty());
+                    .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, 1, OptionalDouble.empty());
         }
 
         this.region = new AreaRenderSectionRegion(level, area);
@@ -216,6 +212,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
             this.entityOutlineTarget.destroyBuffers();
         }
         this.resourcePool.close();
+        this.chunkLayerSampler.close();
     }
 
     @Override
@@ -313,7 +310,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         deltaTracker,
                         this.minecraft.options.getMenuBackgroundBlurriness(),
                         camera,
-                        this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
+                        false
                 );
 
         this.multiplyNormals = false;
@@ -324,7 +321,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         var scale = 1f / ((area.sizeX() + area.sizeY() + area.sizeZ()) / 3f);
         poseStack.scale(scale, scale, scale);
 
-        var targets = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTargets();
+        var targets = levelTargetBundle();
         RenderUtils.mainRenderTargetReplacement = this.renderTarget;
 
         var oldTargetMain = targets.main;
@@ -358,7 +355,9 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         modelView.pushMatrix();
         modelView.mul(poseStack.last().pose());
 
-        this.addMainPass(targets, frameGraphBuilder, poseStack, RenderSystem.getShaderFog(), false, this.levelRenderState);
+        var fogRenderer = ((GameRendererAccessor) this.minecraft.gameRenderer).getFogRenderer();
+        var worldFog = fogRenderer.getBuffer(FogRenderer.FogMode.NONE);
+        this.addMainPass(targets, frameGraphBuilder, poseStack, worldFog, false, this.levelRenderState);
 
         PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
         if (this.levelRenderState.haveGlowingEntities && outlinePostChain != null) {
@@ -367,7 +366,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
         if (this.renderParticles) {
             this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
-            this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, RenderSystem.getShaderFog());
+            this.addParticlesPass(targets, poseStack.last().pose(), frameGraphBuilder, worldFog);
         }
         frameGraphBuilder.execute(this.resourcePool);
 
@@ -400,6 +399,8 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         this.minecraft.gameRenderer.getMainCamera(),
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
                 );
+
+        RenderSystem.setShaderFog(fogRenderer.getBuffer(FogRenderer.FogMode.NONE));
     }
 
     private void addMainPass(
@@ -439,6 +440,8 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
                     var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
                     chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
+                    this.solidifyBuffer(this.renderTarget);
+
                     if (itemEntityHandle != null) {
                         itemEntityHandle.get().copyDepthFrom(this.minecraft.getMainRenderTarget());
                     }
@@ -660,6 +663,14 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
     public boolean ignoreLighting() {
         return this.region.ignoreLighting();
+    }
+
+    public LevelRenderState levelRenderState() {
+        return levelRenderState;
+    }
+
+    public LevelTargetBundle levelTargetBundle() {
+        return ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTargets();
     }
 
     public record Section(BlockPos origin, CompiledSectionMesh sectionMesh) {

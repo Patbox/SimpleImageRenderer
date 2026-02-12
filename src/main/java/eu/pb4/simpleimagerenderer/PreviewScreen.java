@@ -34,6 +34,9 @@ import java.util.Locale;
 import java.util.function.*;
 
 public class PreviewScreen<T> extends Screen {
+    private static final Identifier SCREEN_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
+    private static final Identifier PREVIEW_BACKGROUND_ALT = Identifier.fromNamespaceAndPath(
+            "simpleimagerenderer", "textures/gui/background_alt.png");
     private final AbstractImageRenderer<T> renderer;
     private final AbstractImageRenderer.RenderConsumer<T> consumer;
     private RendererSettings settings;
@@ -54,6 +57,7 @@ public class PreviewScreen<T> extends Screen {
     private double posOverflowY;
     private double rotOverflowX;
     private double rotOverflowY;
+    private static boolean scalePreview = true;
 
     protected PreviewScreen(AbstractImageRenderer<T> renderer, RendererSettings settings, AbstractImageRenderer.RenderConsumer<T> consumer) {
         super(Component.translatable("title.simple_image_renderer.preview." + switch (renderer) {
@@ -168,7 +172,7 @@ public class PreviewScreen<T> extends Screen {
 
         // Image size
         {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
             group.addChild(new StringWidget(button("width"), font), group.newCellSettings().alignVerticallyMiddle());
             group.addChild(createIntEditBox(button("width"), v -> {
                 this.renderer.setupTexture(this.settings.width = v, this.settings.height);
@@ -242,7 +246,7 @@ public class PreviewScreen<T> extends Screen {
         }
 
         if (!(this.renderer instanceof RegionImageRenderer)) {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             // Rotate Light
             group.addChild(Button.builder(button("rotate_light").append(": ").append(CommonComponents.optionStatus(this.renderer.multiplyNormals())), b -> {
@@ -275,7 +279,7 @@ public class PreviewScreen<T> extends Screen {
         if (this.renderer instanceof EntityImageRenderer entityImageRenderer) {
             var unchanged = value("unchanged").getString();
             DoubleFunction<String> format = x -> x < 0 ? unchanged : nf.format(x);
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             list.accept(group);
 
@@ -312,7 +316,7 @@ public class PreviewScreen<T> extends Screen {
         }
 
         if (this.renderer instanceof RegionImageRenderer regionImageRenderer) {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderEntities)
                     .withValues(true, false)
@@ -330,7 +334,7 @@ public class PreviewScreen<T> extends Screen {
                     })
             );
             list.accept(group);
-            group = LinearLayout.horizontal().spacing(4);
+            group = LinearLayout.horizontal().spacing(2);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderNametags)
                     .withValues(true, false)
@@ -349,7 +353,7 @@ public class PreviewScreen<T> extends Screen {
             );
             list.accept(group);
 
-            group = LinearLayout.horizontal().spacing(4);
+            group = LinearLayout.horizontal().spacing(2);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderEdge)
                     .withValues(true, false)
@@ -388,7 +392,13 @@ public class PreviewScreen<T> extends Screen {
     }
 
     protected void addFooter() {
-        LinearLayout linearLayout = this.layout.addToFooter(LinearLayout.horizontal().spacing(8));
+        LinearLayout linearLayout = this.layout.addToFooter(LinearLayout.horizontal().spacing(3));
+        linearLayout.defaultCellSetting().alignHorizontallyCenter().alignHorizontallyCenter();
+        linearLayout.addChild(Checkbox.builder(button("scale_preview"), font)
+                .maxWidth(90)
+                .selected(this.scalePreview)
+                .onValueChange((checkbox, bl) -> this.scalePreview = bl)
+                .build());
 
         linearLayout.addChild(Button.builder(button("render"), (button) -> {
             if (!Minecraft.getInstance().hasShiftDown()) {
@@ -401,7 +411,7 @@ public class PreviewScreen<T> extends Screen {
                 ));
             }
             this.renderer.render(this.consumer, false);
-        }).width(100).build());
+        }).width(85).build());
 
         linearLayout.addChild(Button.builder(button("save_settings"), btn -> {
             RendererSettings.defaultSettings = this.settings.clone();
@@ -410,11 +420,11 @@ public class PreviewScreen<T> extends Screen {
                     text("saved_configuration"),
                     null
             ));
-        }).width(100).build());
+        }).width(85).build());
 
         linearLayout.addChild(Button.builder(CommonComponents.GUI_CANCEL, (button) -> {
             this.minecraft.setScreen(null);
-        }).width(100).build());
+        }).width(85).build());
     }
 
     @Override
@@ -426,10 +436,9 @@ public class PreviewScreen<T> extends Screen {
     @Override
     public void render(GuiGraphics guiGraphics, int i, int j, float f) {
         {
-            Identifier background = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
             guiGraphics.blit(
                     RenderPipelines.GUI_TEXTURED,
-                    background,
+                    SCREEN_BACKGROUND,
                     0,
                     this.layout.getHeaderHeight(),
                     this.width, 0,
@@ -472,6 +481,23 @@ public class PreviewScreen<T> extends Screen {
                 scaledDown = true;
             }
 
+            if (!scaledDown && this.scalePreview) {
+                var scaleX = 1;
+                var scaleY = 1;
+
+                while (width * (scaleX + 1) < maxWidth) {
+                    scaleX++;
+                }
+
+                while (height * (scaleY + 1) < maxHeight) {
+                    scaleY++;
+                }
+
+                var scale = Math.min(scaleX, scaleY);
+                height *= scale;
+                width *= scale;
+            }
+
             this.startX = (maxWidth - width) / 2;
             this.startY = (this.layout.getContentHeight() * mult - height) / 2 + this.layout.getHeaderHeight() * mult;
             this.endX = startX + width;
@@ -480,12 +506,32 @@ public class PreviewScreen<T> extends Screen {
             guiGraphics.pose().pushMatrix();
             guiGraphics.pose().scale(1f / mult);
 
-            guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
-            guiGraphics.renderOutline(startX - 1, startY - 1, width + 2, height + 2, scaledDown ? 0xFFFF9944 : 0xFFFFFFFF);
-
+            var outlineColor = scaledDown ? 0xFFFF9944 : 0xFFFFFFFF;
+            guiGraphics.fill(startX - mult, startY - mult, endX + mult, startY, outlineColor);
+            guiGraphics.fill(startX - mult, endY, endX + mult, endY + mult, outlineColor);
+            guiGraphics.fill(startX - mult, startY, startX, endY, outlineColor);
+            guiGraphics.fill(endX, startY, endX + mult, endY, outlineColor);
             var sampler = RenderSystem.getSamplerCache().getSampler(AddressMode.REPEAT, AddressMode.REPEAT, FilterMode.NEAREST, FilterMode.NEAREST, false);
+
+            if (InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_B)) {
+                guiGraphics.blit(
+                        RenderPipelines.GUI_TEXTURED,
+                        PREVIEW_BACKGROUND_ALT,
+                        startX,
+                        startY,
+                        0, 0,
+                        width,
+                        height,
+                        16,
+                        16
+                );
+
+            } else if (!InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_N)) {
+                guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
+            }
+
             ((GuiGraphicsAccessor) guiGraphics).callSubmitBlit(RenderPipelines.GUI_TEXTURED,
-                    InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_S)
+                    InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_M)
                             ? x.getDepthTextureView()
                             : x.getColorTextureView(), sampler,
                     startX, startY, endX, endY,

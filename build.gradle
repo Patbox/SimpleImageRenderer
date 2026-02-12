@@ -1,13 +1,12 @@
 plugins {
-	id 'fabric-loom' version '1.13.+'
+	id 'fabric-loom' version '1.14.+'
 	id 'maven-publish'
 	id "com.modrinth.minotaur" version "2.+"
 }
 
-sourceCompatibility = JavaVersion.VERSION_21
-targetCompatibility = JavaVersion.VERSION_21
-
-archivesBaseName = project.archives_base_name
+base {
+	archivesName = project.archives_base_name
+}
 version = project.mod_version
 group = project.maven_group
 
@@ -36,6 +35,7 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 	modImplementation "eu.pb4:polymer-core:${project.polymer_version}"
+	//modCompileOnly "maven.modrinth:iris:ZQx4ktUs"
 }
 
 processResources {

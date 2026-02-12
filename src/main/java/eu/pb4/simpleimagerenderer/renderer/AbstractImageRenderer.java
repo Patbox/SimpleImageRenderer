@@ -1,22 +1,26 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.pipeline.MainTarget;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
+import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
-import net.minecraft.client.renderer.RenderBuffers;
-import net.minecraft.client.renderer.SubmitNodeStorage;
+import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
+import net.minecraft.client.renderer.texture.SpriteContents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
+import java.util.OptionalInt;
 import java.util.function.BiConsumer;
 
 public abstract class AbstractImageRenderer<T> implements AutoCloseable {
@@ -29,7 +33,9 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected final Matrix4f matrix = new Matrix4f();
     protected final Quaternionf cameraOrientation = new Quaternionf();
-    protected TextureTarget renderTarget;
+    protected final CrossFrameResourcePool resourcePool = new CrossFrameResourcePool(3);
+
+    protected RenderTarget renderTarget;
     protected int height;
     protected int width;
     protected LightingType lightingType = LightingType.DEFAULT;
@@ -92,8 +98,18 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         clearBuffer(this.renderTarget);
     }
 
-    protected void clearBuffer(TextureTarget target) {
+    protected void clearBuffer(RenderTarget target) {
         RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), 0, target.getDepthTexture(), 1);
+    }
+
+    protected void solidifyBuffer(RenderTarget target) {
+       var postChain = this.minecraft.getShaderManager().getPostChain(
+               Identifier.fromNamespaceAndPath("simpleimagerenderer", "solidify"),
+               LevelTargetBundle.MAIN_TARGETS
+       );
+        if (postChain != null) {
+            postChain.process(target, this.resourcePool);
+        }
     }
 
     protected abstract void renderInner(RenderConsumer<T> targetConsumer, boolean preview);
@@ -137,6 +153,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     public void close() {
         this.perspectiveBuffer.close();
         this.renderTarget.destroyBuffers();
+        this.resourcePool.close();
     }
 
     public void updateMatrix(Matrix4f matrix4f, Quaternionf cameraOrientation) {
@@ -177,6 +194,15 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     public abstract Component getTitle();
+
+    public Minecraft getMinecraft() {
+        return this.minecraft;
+    }
+
+    public RenderBuffers renderBuffers() {
+        return this.renderBuffers;
+    }
+
 
     public enum LightingType {
         DEFAULT(null),
