@@ -30,7 +30,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final SubmitNodeStorage submitNodeStorage;
     protected final FeatureRenderDispatcher featureRenderDispatcher;
     protected final MultiBufferSource.BufferSource bufferSource;
-    protected final PerspectiveProjectionMatrixBuffer perspectiveBuffer;
+    protected final ProjectionMatrixBuffer perspectiveBuffer;
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected final Matrix4f matrix = new Matrix4f();
     protected final Quaternionf cameraOrientation = new Quaternionf();
@@ -52,7 +52,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.submitNodeStorage = this.featureRenderDispatcher.getSubmitNodeStorage();
         this.renderBuffers = minecraft.renderBuffers();
         this.bufferSource = minecraft.renderBuffers().bufferSource();
-        this.perspectiveBuffer = new PerspectiveProjectionMatrixBuffer("render");
+        this.perspectiveBuffer = new ProjectionMatrixBuffer("render");
         this.setupTexture(width, height);
     }
 

@@ -66,7 +66,7 @@ class ModCommands {
         dispatcher.register(literal("render")
                 .then(literal("item")
                         .then(argument("item", ItemArgument.item(bctx))
-                                .executes(ctx -> renderItems(ctx, ItemArgument.getItem(ctx, "item").createItemStack(1, false)))
+                                .executes(ctx -> renderItems(ctx, ItemArgument.getItem(ctx, "item").createItemStack(1)))
                         ).then(argument("id", ResourceOrTagArgument.resourceOrTag(bctx, Registries.ITEM))
                                 .executes(ctx -> renderItems(ctx, ((ResourceOrTagArgument.Result<Item>) ResourceOrTagArgument.getResourceOrTag((CommandContext) ctx, "id", Registries.ITEM))
                                         .unwrap().map(Stream::<Holder<Item>>of, HolderSet::stream).map(ItemStack::new).toArray(ItemStack[]::new)))
@@ -191,7 +191,7 @@ class ModCommands {
         var start = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("start", Coordinates.class)));
         var end = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("end", Coordinates.class)));
 
-        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, ctx.getSource().getWorld(),
+        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, ctx.getSource().getLevel(),
                 BlockBox.of(start, end), RendererSettings.defaultSettings.renderEdge, RendererSettings.defaultSettings.ignoreLighting);
         openRendererScreen(renderer, (textureTarget, entityx, frame) -> {
             try {

@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.color.block.BlockTintCache;
 import net.minecraft.client.renderer.BiomeColors;
 import net.minecraft.core.*;
+import net.minecraft.util.ARGB;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.ColorResolver;
 import net.minecraft.world.level.Level;
@@ -103,31 +104,34 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
     @Override
     public int getBlockTint(BlockPos blockPos, ColorResolver colorResolver) {
         BlockTintCache blockTintCache = this.tintCaches.get(colorResolver);
+        if (blockTintCache == null) {
+            return this.level.getBlockTint(blockPos, colorResolver);
+        }
         return blockTintCache.getColor(blockPos);
     }
 
 
-    private int calculateBlockTint(BlockPos blockPos, ColorResolver colorResolver) {
-        int i = Minecraft.getInstance().options.biomeBlendRadius().get();
-        if (i == 0) {
-            return colorResolver.getColor(this.getBiomeFabric(blockPos).value(), blockPos.getX(), blockPos.getZ());
+    private int calculateBlockTint(BlockPos pos, ColorResolver colorResolver) {
+        int dist = Minecraft.getInstance().options.biomeBlendRadius().get();
+        if (dist == 0) {
+            return colorResolver.getColor(this.getBiomeFabric(pos).value(), pos.getX(), pos.getZ());
         } else {
-            int j = (i * 2 + 1) * (i * 2 + 1);
-            int k = 0;
-            int l = 0;
-            int m = 0;
-            Cursor3D cursor3D = new Cursor3D(blockPos.getX() - i, blockPos.getY(), blockPos.getZ() - i, blockPos.getX() + i, blockPos.getY(), blockPos.getZ() + i);
-            BlockPos.MutableBlockPos mutableBlockPos = new BlockPos.MutableBlockPos();
+            int count = (dist * 2 + 1) * (dist * 2 + 1);
+            int totalRed = 0;
+            int totalGreen = 0;
+            int totalBlue = 0;
+            Cursor3D cursor = new Cursor3D(pos.getX() - dist, pos.getY(), pos.getZ() - dist, pos.getX() + dist, pos.getY(), pos.getZ() + dist);
 
-            while (cursor3D.advance()) {
-                mutableBlockPos.set(cursor3D.nextX(), cursor3D.nextY(), cursor3D.nextZ());
-                int n = colorResolver.getColor(this.getBiomeFabric(mutableBlockPos).value(), mutableBlockPos.getX(), mutableBlockPos.getZ());
-                k += (n & 0xFF0000) >> 16;
-                l += (n & 0xFF00) >> 8;
-                m += n & 0xFF;
+            int color;
+            for (var nextPos = new BlockPos.MutableBlockPos(); cursor.advance();) {
+                nextPos.set(cursor.nextX(), cursor.nextY(), cursor.nextZ());
+                color = colorResolver.getColor(this.getBiomeFabric(nextPos).value(), nextPos.getX(), nextPos.getZ());
+                totalRed += ARGB.red(color);
+                totalGreen += ARGB.green(color);
+                totalBlue += ARGB.blue(color);
             }
 
-            return (k / j & 0xFF) << 16 | (l / j & 0xFF) << 8 | m / j & 0xFF;
+            return ARGB.color(totalRed / count, totalGreen / count, totalBlue / count);
         }
     }
 

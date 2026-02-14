@@ -267,13 +267,15 @@ public class PreviewScreen<T> extends Screen {
 
             list.accept(group);
         }
-        list.accept(CycleButton.<AbstractImageRenderer.LightmapType>builder(x -> Component.literal(x.name()), this.renderer::lightmapType)
-                .withValues(AbstractImageRenderer.LightmapType.values())
-                .create(0, 0, 120, 20, button("lightmap"), (btn, val) -> {
-                    this.renderer.setLightmapType(val);
-                    settings.lightmapType = val;
-                })
-        );
+        if (Math.random() > 2) {
+            list.accept(CycleButton.<AbstractImageRenderer.LightmapType>builder(x -> Component.literal(x.name()), this.renderer::lightmapType)
+                    .withValues(AbstractImageRenderer.LightmapType.values())
+                    .create(0, 0, 120, buttonHeight, button("lightmap"), (btn, val) -> {
+                        this.renderer.setLightmapType(val);
+                        settings.lightmapType = val;
+                    })
+            );
+        }
 
 
         if (this.renderer instanceof ItemImageRenderer itemImageRenderer) {
