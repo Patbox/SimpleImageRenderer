@@ -199,6 +199,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
             results.release();
         }
         builder.discardAll();
+        this.updateMatrix(this.matrix, this.cameraOrientation);
     }
 
     @Override
