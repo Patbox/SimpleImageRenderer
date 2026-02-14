@@ -15,9 +15,11 @@ import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandBuildContext;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.IdentifierArgument;
+import net.minecraft.commands.arguments.ResourceOrTagArgument;
 import net.minecraft.commands.arguments.blocks.BlockInput;
 import net.minecraft.commands.arguments.blocks.BlockStateArgument;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
@@ -26,8 +28,11 @@ import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.commands.arguments.selector.EntitySelector;
 import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
@@ -35,6 +40,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
@@ -45,6 +51,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
+import java.util.stream.Stream;
 
 import static eu.pb4.simpleimagerenderer.util.RenderUtils.writeToNativeImage;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
@@ -55,17 +62,21 @@ class ModCommands {
     private static final boolean POLYMER = FabricLoader.getInstance().isModLoaded("polymer-core");
 
     static void registerCommands(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandBuildContext bctx) {
+        //noinspection unchecked
         dispatcher.register(literal("render")
-                .then(literal("item").then(
-                                        argument("item", ItemArgument.item(bctx))
-                                                .executes(ctx -> renderItems(ctx, ItemArgument.getItem(ctx, "item").createItemStack(1, false)))
-                                ).then(literal("hand")
-                                        .executes(ctx -> renderItems(ctx, ctx.getSource().getPlayer().getMainHandItem()))
-                                ).then(literal("creative").then(
-                                        argument("id", IdentifierArgument.id()).suggests(ModCommands::suggestCreativeTabs)
-                                                .executes(ctx -> renderItems(ctx, getCreativeTabsItems(ctx.getArgument("id", Identifier.class))))
-                                ))
+                .then(literal("item")
+                        .then(argument("item", ItemArgument.item(bctx))
+                                .executes(ctx -> renderItems(ctx, ItemArgument.getItem(ctx, "item").createItemStack(1, false)))
+                        ).then(argument("id", ResourceOrTagArgument.resourceOrTag(bctx, Registries.ITEM))
+                                .executes(ctx -> renderItems(ctx, ((ResourceOrTagArgument.Result<Item>) ResourceOrTagArgument.getResourceOrTag((CommandContext) ctx, "id", Registries.ITEM))
+                                        .unwrap().map(Stream::<Holder<Item>>of, HolderSet::stream).map(ItemStack::new).toArray(ItemStack[]::new)))
+                        ).then(literal("hand")
                                 .executes(ctx -> renderItems(ctx, ctx.getSource().getPlayer().getMainHandItem()))
+                        ).then(literal("creative").then(
+                                argument("id", IdentifierArgument.id()).suggests(ModCommands::suggestCreativeTabs)
+                                        .executes(ctx -> renderItems(ctx, getCreativeTabsItems(ctx.getArgument("id", Identifier.class))))
+                        ))
+                        .executes(ctx -> renderItems(ctx, ctx.getSource().getPlayer().getMainHandItem()))
                 )
                 .then(literal("entity")
                         .executes(ctx -> ModCommands.renderEntity(ctx, Objects.requireNonNull(ctx.getSource().getClient().crosshairPickEntity, "No selected entity!")))
@@ -142,7 +153,7 @@ class ModCommands {
 
     private static int renderEntity(CommandContext<FabricClientCommandSource> ctx, Entity entity) throws CommandSyntaxException {
         var renderer = new EntityImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, entity);
-        openRendererScreen(renderer, (textureTarget, entityx) -> {
+        openRendererScreen(renderer, (textureTarget, entityx, frame) -> {
             try {
                 var itemName = entity.getDisplayName().getString();
                 var name = ModInit.useIdAsName ? BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toDebugFileName() : itemName;
@@ -160,7 +171,7 @@ class ModCommands {
 
     private static int renderBlockState(CommandContext<FabricClientCommandSource> ctx, BlockState state) throws CommandSyntaxException {
         var renderer = new BlockImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, state);
-        openRendererScreen(renderer, (textureTarget, entityx) -> {
+        openRendererScreen(renderer, (textureTarget, entityx, frame) -> {
             try {
                 var itemName = state.getBlock().getName().getString();
                 var name = ModInit.useIdAsName ? BuiltInRegistries.BLOCK.getKey(state.getBlock()).toDebugFileName() : itemName;
@@ -180,8 +191,9 @@ class ModCommands {
         var start = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("start", Coordinates.class)));
         var end = BlockPos.containing(ClientEntityUtils.getPos(ctx.getSource().getPosition(), ctx.getSource().getRotation(), ctx.getArgument("end", Coordinates.class)));
 
-        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, ctx.getSource().getLevel(), BlockBox.of(start, end));
-        openRendererScreen(renderer, (textureTarget, entityx) -> {
+        var renderer = new RegionImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, ctx.getSource().getWorld(),
+                BlockBox.of(start, end), RendererSettings.defaultSettings.renderEdge, RendererSettings.defaultSettings.ignoreLighting);
+        openRendererScreen(renderer, (textureTarget, entityx, frame) -> {
             try {
                 var name = "area_" + Util.getFilenameFormattedDateTime();
                 var path = MAIN_PATH.resolve(name + ".png");
@@ -197,7 +209,7 @@ class ModCommands {
         return 0;
     }
 
-    private static <T> void openRendererScreen(AbstractImageRenderer<T> renderer, BiConsumer<TextureTarget, T> consumer) {
+    private static <T> void openRendererScreen(AbstractImageRenderer<T> renderer, AbstractImageRenderer.RenderConsumer<T> consumer) {
         RendererSettings.defaultSettings.applyAll(renderer);
         Minecraft.getInstance().execute(() -> {
             Minecraft.getInstance().setScreen(new PreviewScreen<>(renderer, RendererSettings.defaultSettings.clone(), consumer));
@@ -207,7 +219,7 @@ class ModCommands {
     private static int renderItems(CommandContext<FabricClientCommandSource> ctx, ItemStack... items) {
         var renderer = new ItemImageRenderer(ctx.getSource().getClient(), RendererSettings.defaultSettings.width, RendererSettings.defaultSettings.height, List.of(items));
 
-        openRendererScreen(renderer, (textureTarget, itemStack) -> {
+        openRendererScreen(renderer, (textureTarget, itemStack, frame) -> {
             try {
                 var itemName = itemStack.getHoverName().getString();
                 var name = ModInit.useIdAsName ? itemStack.getOrDefault(DataComponents.ITEM_MODEL, BuiltInRegistries.ITEM.getKey(itemStack.getItem())).toDebugFileName() : itemName;

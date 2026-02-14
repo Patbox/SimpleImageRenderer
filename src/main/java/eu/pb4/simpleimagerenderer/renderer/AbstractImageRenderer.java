@@ -1,22 +1,27 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.pipeline.MainTarget;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.resource.CrossFrameResourcePool;
+import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
 import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.PerspectiveProjectionMatrixBuffer;
-import net.minecraft.client.renderer.RenderBuffers;
-import net.minecraft.client.renderer.SubmitNodeStorage;
+import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
+import net.minecraft.client.renderer.texture.SpriteContents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
+import java.util.OptionalInt;
 import java.util.function.BiConsumer;
 
 public abstract class AbstractImageRenderer<T> implements AutoCloseable {
@@ -29,7 +34,9 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected final Matrix4f matrix = new Matrix4f();
     protected final Quaternionf cameraOrientation = new Quaternionf();
-    protected TextureTarget renderTarget;
+    protected final CrossFrameResourcePool resourcePool = new CrossFrameResourcePool(3);
+
+    protected RenderTarget renderTarget;
     protected int height;
     protected int width;
     protected LightingType lightingType = LightingType.DEFAULT;
@@ -65,7 +72,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.multiplyNormals = multiplyNormals;
     }
 
-    public void render(BiConsumer<TextureTarget, T> targetConsumer, boolean preview) {
+    public void render(RenderConsumer<T> targetConsumer, boolean preview) {
         RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
         var oldOutputColor = RenderSystem.outputColorTextureOverride;
         var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
@@ -74,7 +81,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.outputColorTextureOverride = renderTarget.getColorTextureView();
         RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
         RenderSystem.backupProjectionMatrix();
-        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), projectionType);
+        // Technically not correct, but this fixes issues with z-ordering of entity shadows and alike.
+        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.PERSPECTIVE);
 
         var oldLightmap = ((GameRendererAccessor) this.minecraft.gameRenderer).isUseUiLightmap();
         ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(this.lightmapType.useUiLightmap(this.useUiLightmapByDefault));
@@ -97,10 +105,24 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     protected void clearBuffer() {
-        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(renderTarget.getColorTexture(), 0, renderTarget.getDepthTexture(), 1);
+        clearBuffer(this.renderTarget);
     }
 
-    protected abstract void renderInner(BiConsumer<TextureTarget, T> targetConsumer, boolean preview);
+    protected void clearBuffer(RenderTarget target) {
+        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), 0, target.getDepthTexture(), 1);
+    }
+
+    protected void solidifyBuffer(RenderTarget target) {
+       var postChain = this.minecraft.getShaderManager().getPostChain(
+               Identifier.fromNamespaceAndPath("simpleimagerenderer", "solidify"),
+               LevelTargetBundle.MAIN_TARGETS
+       );
+        if (postChain != null) {
+            postChain.process(target, this.resourcePool);
+        }
+    }
+
+    protected abstract void renderInner(RenderConsumer<T> targetConsumer, boolean preview);
 
 
     public void setupTexture(int width) {
@@ -141,6 +163,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     public void close() {
         this.perspectiveBuffer.close();
         this.renderTarget.destroyBuffers();
+        this.resourcePool.close();
     }
 
     public void updateMatrix(Matrix4f matrix4f, Quaternionf cameraOrientation) {
@@ -153,6 +176,10 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
             poseStack.mulPose(this.matrix);
         } else {
             poseStack.last().pose().mul(this.matrix);
+        }
+
+        if (this.projectionType == ProjectionType.PERSPECTIVE) {
+            poseStack.scale(1, -1, 1);
         }
     }
 
@@ -186,6 +213,15 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public abstract Component getTitle();
 
+    public Minecraft getMinecraft() {
+        return this.minecraft;
+    }
+
+    public RenderBuffers renderBuffers() {
+        return this.renderBuffers;
+    }
+
+
     public enum LightingType {
         DEFAULT(null),
         LEVEL(Lighting.Entry.LEVEL),
@@ -218,7 +254,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         }
     }
 
-    /*public interface RenderConsumer<T> {
+    public interface RenderConsumer<T> {
         void rendered(RenderTarget target, T object, int frame);
-    }*/
+    }
 }

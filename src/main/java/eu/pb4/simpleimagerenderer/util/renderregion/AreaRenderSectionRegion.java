@@ -42,21 +42,39 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
                 );
             }
     );
+    private boolean allowExternalLookup = false;
+    private boolean ignoreLighting = false;
 
     public AreaRenderSectionRegion(Level level, BlockBox area) {
         super(level);
         this.area = area;
     }
 
+    public boolean allowExternalLookup() {
+        return allowExternalLookup;
+    }
+
+    public void setAllowExternalLookup(boolean allowExternalLookup) {
+        this.allowExternalLookup = allowExternalLookup;
+    }
+
+    public boolean ignoreLighting() {
+        return this.ignoreLighting;
+    }
+
+    public void setIgnoreLighting(boolean ignoreLighting) {
+        this.ignoreLighting = ignoreLighting;
+    }
+
     @Override
     public BlockState getBlockState(BlockPos blockPos) {
-        if (this.area.contains(blockPos)) {
+        if (this.area.contains(blockPos) || this.allowExternalLookup) {
             var key = SectionPos.asLong(blockPos);
             var section = this.sections.get(key);
             if (section == null) {
                 var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
                 section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                this.sections.put(key, section);
+                this.sections.put(key, section.copy());
             }
 
             return section.getStates().get(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
@@ -67,13 +85,13 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
 
     @Override
     public FluidState getFluidState(BlockPos blockPos) {
-        if (this.area.contains(blockPos)) {
+        if (this.area.contains(blockPos) || this.allowExternalLookup) {
             var key = SectionPos.asLong(blockPos);
             var section = this.sections.get(key);
             if (section == null) {
                 var chunk = this.level.getChunk(SectionPos.x(key), SectionPos.z(key));
                 section = chunk.getSection(chunk.getSectionIndexFromSectionY(SectionPos.y(key))).copy();
-                this.sections.put(key, section);
+                this.sections.put(key, section.copy());
             }
 
             return section.getFluidState(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
@@ -138,7 +156,12 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
 
     @Override
     public LevelLightEngine getLightEngine() {
-        return this.level.getLightEngine();
+        return this.ignoreLighting ? CustomLightEngine.FULL_BRIGHT : this.level.getLightEngine();
+    }
+
+    @Override
+    public float getShade(Direction direction, boolean bl) {
+        return this.level.getShade(direction, bl);
     }
 
     @Override
@@ -149,6 +172,11 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
     @Override
     public int getHeight() {
         return this.level.getHeight();
+    }
+
+    @Override
+    public BlockPos limitPos(BlockPos pos) {
+        return this.area.contains(pos) ? pos : BlockPos.min(BlockPos.max(pos, this.area.min()), this.area.max());
     }
 
     @Override

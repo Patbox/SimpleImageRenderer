@@ -1,0 +1,18 @@
+{
+    "targets": {},
+    "passes": [
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "simpleimagerenderer:post/solidify",
+            "inputs": [
+                {
+                    "sampler_name": "In",
+                    "target": "minecraft:main",
+                    "bilinear": false
+                }
+            ],
+            "output": "minecraft:main",
+            "uniforms": {}
+        }
+    ]
+}

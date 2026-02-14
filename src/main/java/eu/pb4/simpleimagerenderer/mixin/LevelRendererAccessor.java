@@ -1,12 +1,15 @@
 package eu.pb4.simpleimagerenderer.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.state.LevelRenderState;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.BlockDestructionProgress;
 import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.gen.Invoker;
-import org.spongepowered.asm.mixin.injection.Inject;
+
+import java.util.SortedSet;
 
 @org.spongepowered.asm.mixin.Mixin(net.minecraft.client.renderer.LevelRenderer.class)
 public interface LevelRendererAccessor {
@@ -36,5 +39,8 @@ public interface LevelRendererAccessor {
     void sim_submitBlockEntities(PoseStack poseStack, LevelRenderState levelRenderState, SubmitNodeStorage submitNodeStorage);
 
     @Invoker("renderBlockDestroyAnimation")
-    void sim_renderBlockDestroyAnimation(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource2, LevelRenderState levelRenderState);
+    void sim_renderBlockDestroyAnimation(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource, LevelRenderState levelRenderState);
+
+    @Accessor("destructionProgress")
+    Long2ObjectMap<SortedSet<BlockDestructionProgress>> sim_getDestructionProgress();
 }

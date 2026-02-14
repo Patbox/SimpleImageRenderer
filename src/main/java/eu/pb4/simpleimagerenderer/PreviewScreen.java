@@ -1,6 +1,8 @@
 package eu.pb4.simpleimagerenderer;
 
-import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.AddressMode;
 import com.mojang.blaze3d.textures.FilterMode;
@@ -21,19 +23,24 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.CommonColors;
 import net.minecraft.util.Mth;
 import net.minecraft.util.StringUtil;
 import net.minecraft.world.item.ItemDisplayContext;
+import org.lwjgl.glfw.GLFW;
 
 import java.math.RoundingMode;
 import java.text.NumberFormat;
-import java.util.ArrayList;
 import java.util.Locale;
 import java.util.function.*;
 
 public class PreviewScreen<T> extends Screen {
+    private static final Identifier SCREEN_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
+    private static final Identifier PREVIEW_BACKGROUND_ALT = Identifier.fromNamespaceAndPath(
+            "simpleimagerenderer", "textures/gui/background_alt.png");
     private final AbstractImageRenderer<T> renderer;
-    private final BiConsumer<TextureTarget, T> consumer;
+    private final AbstractImageRenderer.RenderConsumer<T> consumer;
     private RendererSettings settings;
     private HeaderAndFooterLayout layout;
     private int imageWidth;
@@ -52,8 +59,9 @@ public class PreviewScreen<T> extends Screen {
     private double posOverflowY;
     private double rotOverflowX;
     private double rotOverflowY;
+    private static boolean scalePreview = true;
 
-    protected PreviewScreen(AbstractImageRenderer<T> renderer, RendererSettings settings, BiConsumer<TextureTarget, T> consumer) {
+    protected PreviewScreen(AbstractImageRenderer<T> renderer, RendererSettings settings, AbstractImageRenderer.RenderConsumer<T> consumer) {
         super(Component.translatable("title.simple_image_renderer.preview." + switch (renderer) {
             case ItemImageRenderer x -> "item";
             case BlockImageRenderer x -> "block";
@@ -68,7 +76,7 @@ public class PreviewScreen<T> extends Screen {
 
     @Override
     protected void init() {
-        this.layout = new HeaderAndFooterLayout(this);
+        this.layout = new HeaderAndFooterLayout(this, 18, 26);
         this.addTitle();
         this.addContents();
         this.addFooter();
@@ -81,22 +89,18 @@ public class PreviewScreen<T> extends Screen {
     }
 
     protected void addContents() {
-        var list = new ArrayList<LayoutElement>();
-        this.createButtons(list::add);
-
-        var list2 = LinearLayout.vertical().spacing(2);
-        list2.defaultCellSetting().alignHorizontallyCenter();
-        list.forEach(list2::addChild);
-        list2.arrangeElements();
+        var list = LinearLayout.vertical().spacing(2);
+        list.defaultCellSetting().alignHorizontallyCenter().alignVerticallyMiddle();
+        list.addChild(new SpacerElement(0, 0));
+        this.createButtons(list::addChild);
+        list.arrangeElements();
         var hor = this.layout.addToContents(LinearLayout.horizontal().spacing(0));
-
-        this.imageWidth = Math.min(this.width - list2.getWidth() - 20, this.width / 2);
-        hor.addChild(new SpacerElement(this.imageWidth, 10));
-
-
-        var scrl = hor.addChild(new ScrollableLayout(minecraft, list2, this.layout.getContentHeight()));
+        hor.defaultCellSetting().alignHorizontallyCenter().alignVerticallyMiddle();
+        this.imageWidth = Math.min(this.width - list.getWidth() - 20, this.width / 2);
+        hor.addChild(new SpacerElement(this.imageWidth, this.layout.getContentHeight()));
+        var scrl = hor.addChild(new ScrollableLayout(minecraft, list, this.layout.getContentHeight()));
         scrl.setMaxHeight(this.layout.getContentHeight());
-        list2.arrangeElements();
+        list.arrangeElements();
     }
 
     @Override
@@ -163,29 +167,30 @@ public class PreviewScreen<T> extends Screen {
     }
 
     private void createButtons(Consumer<LayoutElement> list) {
+        int buttonHeight = 16;
         var nf = NumberFormat.getNumberInstance(Locale.ROOT);
         nf.setMaximumFractionDigits(2);
         nf.setRoundingMode(RoundingMode.HALF_EVEN);
 
         // Image size
         {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
             group.addChild(new StringWidget(button("width"), font), group.newCellSettings().alignVerticallyMiddle());
             group.addChild(createIntEditBox(button("width"), v -> {
                 this.renderer.setupTexture(this.settings.width = v, this.settings.height);
                 this.updateMatrix();
-            }, this.renderer::width, 40, 16, 2048 * 4));
+            }, this.renderer::width, 40, buttonHeight, 16, 2048 * 4));
             group.addChild(new StringWidget(button("height"), font), group.newCellSettings().alignVerticallyMiddle());
             group.addChild(createIntEditBox(button("height"), v -> {
                 this.renderer.setupTexture(this.settings.width, this.settings.height = v);
                 this.updateMatrix();
-            }, this.renderer::height, 40, 16, 2048 * 4));
+            }, this.renderer::height, 40, buttonHeight, 16, 2048 * 4));
 
-            group.addChild(Button.builder(Component.literal("\uD83D\uDDD8"), btn -> {
+            group.addChild(Button.builder(Component.literal("\uD83D\uDDD8").withColor(CommonColors.SOFT_RED), btn -> {
                 this.settings = new RendererSettings();
                 this.settings.applyAll(this.renderer);
                 this.rebuildWidgets();
-            }).size(20, 20).tooltip(Tooltip.create(text("reset_local"))).build());
+            }).size(buttonHeight, buttonHeight).tooltip(Tooltip.create(text("reset_local"))).build());
             list.accept(group);
         }
 
@@ -193,14 +198,14 @@ public class PreviewScreen<T> extends Screen {
         this.pitch = createIntSliderWithText(button("pitch"), v -> {
             this.settings.pitch = v;
             this.updateMatrix();
-        }, () -> this.settings.pitch, 140, 45, -180, 180);
+        }, () -> this.settings.pitch, 140, 45, buttonHeight, -180, 180);
         list.accept(this.pitch.group());
 
         // Yaw
         this.yaw = createIntSliderWithText(button("yaw"), v -> {
             this.settings.yaw = v;
             this.updateMatrix();
-        }, () -> this.settings.yaw, 140, 45, -180, 180);
+        }, () -> this.settings.yaw, 140, 45, buttonHeight, -180, 180);
 
         list.accept(this.yaw.group());
 
@@ -208,20 +213,20 @@ public class PreviewScreen<T> extends Screen {
         list.accept(createIntSliderWithText(button("roll"), v -> {
             this.settings.roll = v;
             this.updateMatrix();
-        }, () -> this.settings.roll, 140, 45, -180, 180).group());
+        }, () -> this.settings.roll, 140, 45, buttonHeight, -180, 180).group());
 
         // Scale
         this.scale = createIntSliderWithText(button("scale"), v -> {
             this.settings.scale = v;
             this.updateMatrix();
-        }, () -> this.settings.scale, 140, 45, 1, 1000, 100, x -> x + "%");
+        }, () -> this.settings.scale, 140, 45, buttonHeight, 1, 1000, 100, x -> x + "%");
         list.accept(this.scale.group());
 
         // X
         this.xpos = createIntSliderWithText(button("x"), v -> {
                     this.settings.x = v;
                     this.updateMatrix();
-                }, () -> settings.x, 140, 45, -6400, 6400, 0, x -> nf.format(x / 100d),
+                }, () -> settings.x, 140, 45, buttonHeight, -6400, 6400, 0, x -> nf.format(x / 100d),
                 x -> (int) (Double.parseDouble(x) * 100), x -> Double.toString(x / 100d));
         list.accept(this.xpos.group());
 
@@ -229,23 +234,32 @@ public class PreviewScreen<T> extends Screen {
         this.ypos = createIntSliderWithText(button("y"), v -> {
                     this.settings.y = v;
                     this.updateMatrix();
-                }, () -> settings.y, 140, 45, -6400, 6400, 0, x -> nf.format(x / 100d),
+                }, () -> settings.y, 140, 45, buttonHeight, -6400, 6400, 0, x -> nf.format(x / 100d),
                 x -> (int) (Double.parseDouble(x) * 100), x -> Double.toString(x / 100d));
         list.accept(this.ypos.group());
 
+        if (this.renderer.projectionType() == ProjectionType.PERSPECTIVE) {
+            var z = createIntSliderWithText(button("z"), v -> {
+                        this.settings.z = v;
+                        this.updateMatrix();
+                    }, () -> settings.z, 140, 45, buttonHeight, -6400, 6400, 0, x -> nf.format(x / 100d),
+                    x -> (int) (Double.parseDouble(x) * 100), x -> Double.toString(x / 100d));
+            list.accept(z.group());
+        }
+
         if (!(this.renderer instanceof RegionImageRenderer)) {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             // Rotate Light
             group.addChild(Button.builder(button("rotate_light").append(": ").append(CommonComponents.optionStatus(this.renderer.multiplyNormals())), b -> {
                 this.renderer.setMultiplyNormals(!this.renderer.multiplyNormals());
                 settings.multiplyNormals = this.renderer.multiplyNormals();
                 b.setMessage(button("rotate_light").append(": ").append(CommonComponents.optionStatus(this.renderer.multiplyNormals())));
-            }).width(100).build());
+            }).size(100, buttonHeight).build());
 
             group.addChild(CycleButton.<AbstractImageRenderer.LightingType>builder(x -> Component.literal(x.name()), this.renderer::lightingType)
                     .withValues(AbstractImageRenderer.LightingType.values())
-                    .create(0, 0, 120, 20, button("lighting"), (btn, val) -> {
+                    .create(0, 0, 120, buttonHeight, button("lighting"), (btn, val) -> {
                         this.renderer.setLightingType(val);
                         settings.lightingType = val;
                     })
@@ -265,7 +279,7 @@ public class PreviewScreen<T> extends Screen {
         if (this.renderer instanceof ItemImageRenderer itemImageRenderer) {
             list.accept(CycleButton.<ItemDisplayContext>builder(x -> Component.literal(x.name()), itemImageRenderer::displayContext)
                     .withValues(ItemDisplayContext.values())
-                    .create(button("item_display_context"), (btn, val) -> {
+                    .create(0, 0, 150, buttonHeight, button("item_display_context"), (btn, val) -> {
                         itemImageRenderer.setDisplayContext(val);
                         settings.context = val;
                     })
@@ -275,13 +289,13 @@ public class PreviewScreen<T> extends Screen {
         if (this.renderer instanceof EntityImageRenderer entityImageRenderer) {
             var unchanged = value("unchanged").getString();
             DoubleFunction<String> format = x -> x < 0 ? unchanged : nf.format(x);
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             list.accept(group);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, entityImageRenderer::bodyRotation)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("body_rotation"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("body_rotation"), (btn, val) -> {
                         entityImageRenderer.setBodyRotation(val);
                         settings.bodyRotation = val;
                     })
@@ -289,7 +303,7 @@ public class PreviewScreen<T> extends Screen {
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, entityImageRenderer::headRotation)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("head_rotation"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("head_rotation"), (btn, val) -> {
                         entityImageRenderer.setHeadRotation(val);
                         settings.headRotation = val;
                     })
@@ -299,24 +313,24 @@ public class PreviewScreen<T> extends Screen {
                         entityImageRenderer.setAge((float) (settings.age = v));
                         entityImageRenderer.setGlintTime(v * 1000L / 20);
                     },
-                    () -> (int) settings.age, 140, 50, -1, 200, x -> x == -1 ? unchanged : String.valueOf(x)).group());
+                    () -> (int) settings.age, 140, 50, buttonHeight, -1, 200, -1, x -> x == -1 ? unchanged : String.valueOf(x)).group());
 
             if (entityImageRenderer.isLivingEntity()) {
                 list.accept(createIntSliderWithText(button("walking_pos"), v -> entityImageRenderer.setWalkAnimationPos((float) (settings.walkAnimationPos = v / 200d)),
-                        () -> Math.toIntExact(Math.round(settings.walkAnimationPos * 200)), 140, 50, -1, 2000, -1, x -> format.apply(x / 200f),
+                        () -> Math.toIntExact(Math.round(settings.walkAnimationPos * 200)), 140, 50, buttonHeight, -1, 2000, -1, x -> format.apply(x / 200f),
                         x -> x.equals("-1") ? -1 : (int) (Double.parseDouble(x) * 200), x -> x == -1 ? "-1" : Double.toString(x / 200d)).group());
                 list.accept(createIntSliderWithText(button("walking_speed"), v -> entityImageRenderer.setWalkAnimationSpeed((float) (settings.walkAnimationSpeed = v / 100d)),
-                        () -> Math.toIntExact(Math.round(settings.walkAnimationSpeed * 100)), 140, 50, -1, 100, -1, x -> format.apply(x / 100f),
+                        () -> Math.toIntExact(Math.round(settings.walkAnimationSpeed * 100)), 140, 50, buttonHeight, -1, 100, -1, x -> format.apply(x / 100f),
                         x -> x.equals("-1") ? -1 : (int) (Double.parseDouble(x) * 100), x -> x == -1 ? "-1" : Double.toString(x / 100d)).group());
             }
         }
 
         if (this.renderer instanceof RegionImageRenderer regionImageRenderer) {
-            var group = LinearLayout.horizontal().spacing(4);
+            var group = LinearLayout.horizontal().spacing(2);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderEntities)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("show_entities"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("show_entities"), (btn, val) -> {
                         regionImageRenderer.setRenderEntities(val);
                         settings.renderEntities = val;
                     })
@@ -324,17 +338,17 @@ public class PreviewScreen<T> extends Screen {
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderSelf)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("show_self"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("show_self"), (btn, val) -> {
                         regionImageRenderer.setRenderSelf(val);
                         settings.renderSelf = val;
                     })
             );
             list.accept(group);
-            group = LinearLayout.horizontal().spacing(4);
+            group = LinearLayout.horizontal().spacing(2);
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderNametags)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("show_name_tags"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("show_name_tags"), (btn, val) -> {
                         regionImageRenderer.setRenderNametags(val);
                         settings.renderNametags = val;
                     })
@@ -342,11 +356,31 @@ public class PreviewScreen<T> extends Screen {
 
             group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderParticles)
                     .withValues(true, false)
-                    .create(0, 0, 110, 20, button("show_particles"), (btn, val) -> {
+                    .create(0, 0, 110, buttonHeight, button("show_particles"), (btn, val) -> {
                         regionImageRenderer.setRenderParticles(val);
                         settings.renderParticles = val;
                     })
             );
+            list.accept(group);
+
+            group = LinearLayout.horizontal().spacing(2);
+
+            group.addChild(CycleButton.<Boolean>builder(CommonComponents::optionStatus, regionImageRenderer::renderEdge)
+                    .withValues(true, false)
+                    .create(0, 0, 110, buttonHeight, button("render_edge"), (btn, val) -> {
+                        regionImageRenderer.setRenderEdge(val);
+                        settings.renderEdge = val;
+                    })
+            );
+
+            group.addChild(CycleButton.<Boolean>builder(x -> CommonComponents.optionStatus(!x), regionImageRenderer::ignoreLighting)
+                    .withValues(true, false)
+                    .create(0, 0, 110, buttonHeight, button("lighting"), (btn, val) -> {
+                        regionImageRenderer.setIgnoreLighting(val);
+                        settings.ignoreLighting = val;
+                    })
+            );
+
             list.accept(group);
         }
     }
@@ -368,7 +402,13 @@ public class PreviewScreen<T> extends Screen {
     }
 
     protected void addFooter() {
-        LinearLayout linearLayout = this.layout.addToFooter(LinearLayout.horizontal().spacing(8));
+        LinearLayout linearLayout = this.layout.addToFooter(LinearLayout.horizontal().spacing(3));
+        linearLayout.defaultCellSetting().alignHorizontallyCenter().alignHorizontallyCenter();
+        linearLayout.addChild(Checkbox.builder(button("scale_preview"), font)
+                .maxWidth(90)
+                .selected(this.scalePreview)
+                .onValueChange((checkbox, bl) -> this.scalePreview = bl)
+                .build());
 
         linearLayout.addChild(Button.builder(button("render"), (button) -> {
             if (!Minecraft.getInstance().hasShiftDown()) {
@@ -381,7 +421,7 @@ public class PreviewScreen<T> extends Screen {
                 ));
             }
             this.renderer.render(this.consumer, false);
-        }).width(100).build());
+        }).width(85).build());
 
         linearLayout.addChild(Button.builder(button("save_settings"), btn -> {
             RendererSettings.defaultSettings = this.settings.clone();
@@ -390,11 +430,11 @@ public class PreviewScreen<T> extends Screen {
                     text("saved_configuration"),
                     null
             ));
-        }).width(100).build());
+        }).width(85).build());
 
         linearLayout.addChild(Button.builder(CommonComponents.GUI_CANCEL, (button) -> {
             this.minecraft.setScreen(null);
-        }).width(100).build());
+        }).width(85).build());
     }
 
     @Override
@@ -405,12 +445,35 @@ public class PreviewScreen<T> extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int i, int j, float f) {
-        super.render(guiGraphics, i, j, f);
-        this.renderer.render((x, y) -> {
-            var main = this.minecraft.getMainRenderTarget();
+        {
+            guiGraphics.blit(
+                    RenderPipelines.GUI_TEXTURED,
+                    SCREEN_BACKGROUND,
+                    0,
+                    this.layout.getHeaderHeight(),
+                    this.width, 0,
+                    width,
+                    this.layout.getContentHeight(),
+                    32,
+                    32
+            );
 
+            guiGraphics.blit(RenderPipelines.GUI_TEXTURED, Screen.HEADER_SEPARATOR, 0, this.layout.getHeaderHeight() - 2, 0.0F, 0.0F, width, 2, 32, 2);
+            guiGraphics.blit(RenderPipelines.GUI_TEXTURED, Screen.FOOTER_SEPARATOR, 0, this.layout.getHeaderHeight() + this.layout.getContentHeight(), 0.0F, 0.0F, width, 2, 32, 2);
+
+        }
+        super.render(guiGraphics, i, j, f);
+
+        if (this.startDraggingImage) {
+            guiGraphics.requestCursor(CursorTypes.RESIZE_ALL);
+
+        } else if (this.isWithinImage(i, j)) {
+            guiGraphics.requestCursor(CursorTypes.POINTING_HAND);
+        }
+
+        this.renderer.render((x, y, z) -> {
             var mult = this.minecraft.getWindow().getGuiScale();
-            var maxHeight = main.height - (this.layout.getHeaderHeight() + this.layout.getFooterHeight() + 2) * mult;
+            var maxHeight = this.layout.getContentHeight() * mult;
             var maxWidth = this.imageWidth * mult;
 
             int height = x.height;
@@ -428,20 +491,59 @@ public class PreviewScreen<T> extends Screen {
                 scaledDown = true;
             }
 
+            if (!scaledDown && this.scalePreview) {
+                var scaleX = 1;
+                var scaleY = 1;
+
+                while (width * (scaleX + 1) < maxWidth) {
+                    scaleX++;
+                }
+
+                while (height * (scaleY + 1) < maxHeight) {
+                    scaleY++;
+                }
+
+                var scale = Math.min(scaleX, scaleY);
+                height *= scale;
+                width *= scale;
+            }
+
             this.startX = (maxWidth - width) / 2;
-            this.startY = main.height / 2 - height / 2;
+            this.startY = (this.layout.getContentHeight() * mult - height) / 2 + this.layout.getHeaderHeight() * mult;
             this.endX = startX + width;
             this.endY = startY + height;
 
             guiGraphics.pose().pushMatrix();
             guiGraphics.pose().scale(1f / mult);
 
-            guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
-            guiGraphics.renderOutline(startX - 1, startY - 1, width + 2, height + 2, scaledDown ? 0xFFFF9944 : 0xFFFFFFFF);
-
+            var outlineColor = scaledDown ? 0xFFFF9944 : 0xFFFFFFFF;
+            guiGraphics.fill(startX - mult, startY - mult, endX + mult, startY, outlineColor);
+            guiGraphics.fill(startX - mult, endY, endX + mult, endY + mult, outlineColor);
+            guiGraphics.fill(startX - mult, startY, startX, endY, outlineColor);
+            guiGraphics.fill(endX, startY, endX + mult, endY, outlineColor);
             var sampler = RenderSystem.getSamplerCache().getSampler(AddressMode.REPEAT, AddressMode.REPEAT, FilterMode.NEAREST, FilterMode.NEAREST, false);
+
+            if (InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_B)) {
+                guiGraphics.blit(
+                        RenderPipelines.GUI_TEXTURED,
+                        PREVIEW_BACKGROUND_ALT,
+                        startX,
+                        startY,
+                        0, 0,
+                        width,
+                        height,
+                        16,
+                        16
+                );
+
+            } else if (!InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_N)) {
+                guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
+            }
+
             ((GuiGraphicsAccessor) guiGraphics).callSubmitBlit(RenderPipelines.GUI_TEXTURED,
-                    x.getColorTextureView(), sampler,
+                    InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_M)
+                            ? x.getDepthTextureView()
+                            : x.getColorTextureView(), sampler,
                     startX, startY, endX, endY,
                     0, 1, 1, 0, -1
             );
@@ -450,13 +552,13 @@ public class PreviewScreen<T> extends Screen {
         }, true);
     }
 
-    private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max) {
-        return createIntEditBox(name, consumer, supplier, width, min, max, (max + min) / 2, Integer::parseInt, String::valueOf);
+    private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int height, int min, int max) {
+        return createIntEditBox(name, consumer, supplier, width, height, min, max, (max + min) / 2, Integer::parseInt, String::valueOf);
     }
 
-    private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max, int defaultVal,
+    private EditBox createIntEditBox(Component name, IntConsumer consumer, IntSupplier supplier, int width, int height, int min, int max, int defaultVal,
                                      ToIntFunction<String> parser, IntFunction<String> textBoxString) {
-        var size = new EditBox(this.font, width, 20, name) {
+        var size = new EditBox(this.font, width, height, name) {
             private Predicate<String> filter;
 
             @Override
@@ -538,64 +640,12 @@ public class PreviewScreen<T> extends Screen {
         return size;
     }
 
-    private EditBox createDoubleEditBox(Component name, DoubleConsumer consumer, DoubleSupplier supplier, int width, double min, double max, DoubleFunction<String> rounder) {
-        var size = new EditBox(this.font, width, 20, name) {
-            @Override
-            public void setFocused(boolean bl) {
-                super.setFocused(bl);
-                if (!bl) {
-                    this.setValue(rounder.apply(supplier.getAsDouble()));
-                }
-            }
-        };
-
-        size.setCentered(true);
-
-        size.setResponder((input) -> {
-            try {
-                var value = input.isEmpty() ? min : Double.parseDouble(input);
-                if (value < min || value > max) {
-                    size.setTextColor(0xFFFFAAAA);
-                } else {
-                    size.setTextColor(0xFFFFFFFF);
-                    if (!rounder.apply(value).equals(rounder.apply(supplier.getAsDouble()))) {
-                        consumer.accept(value);
-                    }
-                }
-            } catch (Exception e) {
-                // Silence!
-            }
-
-        });
-// Todo
-        /*size.setFilter((input) -> {
-            if (input.isEmpty()) {
-                return true;
-            }
-            try {
-                var i = Double.parseDouble(input);
-                return true;
-            } catch (Exception e) {
-                if (min < 0 && input.length() == 1 && input.charAt(0) == '-') {
-                    return true;
-                }
-
-                // Silence!
-            }
-
-            return false;
-        });*/
-
-        size.setValue(rounder.apply(supplier.getAsDouble()));
-        return size;
+    private SliderButton createIntSlider(Component name, IntConsumer consumer, IntSupplier supplier, int width, int height, int min, int max) {
+        return createIntSlider(name, consumer, supplier, width, height, min, max, String::valueOf);
     }
 
-    private SliderButton createIntSlider(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max) {
-        return createIntSlider(name, consumer, supplier, width, min, max, String::valueOf);
-    }
-
-    private SliderButton createIntSlider(Component name, IntConsumer consumer, IntSupplier supplier, int width, int min, int max, IntFunction<String> stringify) {
-        return new SliderButton(0, 0, width, 20, Component.empty(), (Mth.clamp(supplier.getAsInt() - min, min, max) / (double) (max - min))) {
+    private SliderButton createIntSlider(Component name, IntConsumer consumer, IntSupplier supplier, int width, int height, int min, int max, IntFunction<String> stringify) {
+        return new SliderButton(0, 0, width, height, Component.empty(), (Mth.clamp(supplier.getAsInt() - min, min, max) / (double) (max - min))) {
             {
                 this.updateMessage();
             }
@@ -614,39 +664,19 @@ public class PreviewScreen<T> extends Screen {
         };
     }
 
-    private SliderButton createDoubleSlider(Component name, DoubleConsumer consumer, DoubleSupplier supplier, int width, double min, double max, double step, DoubleFunction<String> stringify) {
-        return new SliderButton(0, 0, width, 20, Component.empty(), ((supplier.getAsDouble() - min) / (max - min))) {
-            {
-                this.updateMessage();
-            }
-
-            protected void updateMessage() {
-                this.setMessage(Component.empty().append(name).append(": " + stringify.apply(supplier.getAsDouble())));
-            }
-
-            @Override
-            protected void applyValue() {
-                var value = Math.round(Mth.lerp(this.value, min, max) / step) * step;
-                if (value != supplier.getAsDouble()) {
-                    consumer.accept(value);
-                }
-            }
-        };
+    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int height, int min, int max) {
+        return createIntSliderWithText(name, consumer, supplier, width, width2, height, min, max, String::valueOf);
     }
 
-    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int min, int max) {
-        return createIntSliderWithText(name, consumer, supplier, width, width2, min, max, String::valueOf);
+    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int height, int min, int max, IntFunction<String> display) {
+        return createIntSliderWithText(name, consumer, supplier, width, width2, height, min, max, (min + max) / 2, display, Integer::parseInt, Integer::toString);
     }
 
-    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int min, int max, IntFunction<String> display) {
-        return createIntSliderWithText(name, consumer, supplier, width, width2, min, max, (min + max) / 2, display, Integer::parseInt, Integer::toString);
+    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int height, int min, int max, int defaultValue, IntFunction<String> display) {
+        return createIntSliderWithText(name, consumer, supplier, width, width2, height, min, max, defaultValue, display, Integer::parseInt, Integer::toString);
     }
 
-    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int min, int max, int defaultValue, IntFunction<String> display) {
-        return createIntSliderWithText(name, consumer, supplier, width, width2, min, max, defaultValue, display, Integer::parseInt, Integer::toString);
-    }
-
-    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int min, int max, int defaultValue,
+    private SliderWithText createIntSliderWithText(Component name, IntConsumer consumer, IntSupplier supplier, int width, int width2, int height, int min, int max, int defaultValue,
                                                    IntFunction<String> display, ToIntFunction<String> parser, IntFunction<String> textBoxString) {
         var obj = new Object() {
             SliderButton slider;
@@ -656,23 +686,28 @@ public class PreviewScreen<T> extends Screen {
         obj.slider = createIntSlider(name, x -> {
             consumer.accept(x);
             obj.editBox.setValue(textBoxString.apply(x));
-        }, supplier, width, min, max, display);
+        }, supplier, width, height, min, max, display);
 
         obj.editBox = createIntEditBox(name, x -> {
             consumer.accept(x);
             obj.slider.setValue(((supplier.getAsInt() - min) / (double) (max - min)));
-        }, supplier, width2, min, max, defaultValue, parser, textBoxString);
+        }, supplier, width2, height, min, max, defaultValue, parser, textBoxString);
 
         var group = LinearLayout.horizontal().spacing(2);
         group.addChild(obj.slider);
         group.addChild(obj.editBox);
-
-        return new SliderWithText(supplier, x -> {
+        var out = new SliderWithText(supplier, x -> {
             x = Mth.clamp(x, min, max);
             consumer.accept(x);
             obj.slider.setValue(((supplier.getAsInt() - min) / (double) (max - min)));
             obj.editBox.setValue(textBoxString.apply(x));
         }, obj.slider, obj.editBox, group);
+
+        group.addChild(Button.builder(Component.literal("\uD83D\uDDD8"), btn -> {
+            out.consumer.accept(defaultValue);
+        }).size(height, height).tooltip(Tooltip.create(Component.translatable("text.simple_image_renderer.reset_option_value", name, defaultValue))).build());
+
+        return out;
     }
 
     public abstract static class SliderButton extends AbstractSliderButton {
