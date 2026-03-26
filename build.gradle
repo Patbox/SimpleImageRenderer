@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom' version '1.14.+'
+	id 'net.fabricmc.fabric-loom' version '1.15.+'
 	id 'maven-publish'
 	id "com.modrinth.minotaur" version "2.+"
 }
@@ -33,8 +33,8 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-	// Todo
-	//modImplementation "eu.pb4:polymer-core:${project.polymer_version}"
+
+	implementation "eu.pb4:polymer-core:${project.polymer_version}"
 }
 
 processResources {

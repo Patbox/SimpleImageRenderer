@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.color.block.BlockTintCache;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.BiomeColors;
 import net.minecraft.core.*;
 import net.minecraft.util.ARGB;
@@ -46,7 +47,7 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
     private boolean allowExternalLookup = false;
     private boolean ignoreLighting = false;
 
-    public AreaRenderSectionRegion(Level level, BlockBox area) {
+    public AreaRenderSectionRegion(ClientLevel level, BlockBox area) {
         super(level);
         this.area = area;
     }
@@ -161,11 +162,6 @@ public class AreaRenderSectionRegion extends FakeRenderSectionRegion {
     @Override
     public LevelLightEngine getLightEngine() {
         return this.ignoreLighting ? CustomLightEngine.FULL_BRIGHT : this.level.getLightEngine();
-    }
-
-    @Override
-    public float getShade(Direction direction, boolean bl) {
-        return this.level.getShade(direction, bl);
     }
 
     @Override

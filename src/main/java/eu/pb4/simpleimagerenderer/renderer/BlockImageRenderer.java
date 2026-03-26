@@ -6,6 +6,10 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import eu.pb4.simpleimagerenderer.util.renderregion.SingleBlockRenderRegion;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.block.BlockModelRenderState;
+import net.minecraft.client.renderer.block.BlockModelResolver;
+import net.minecraft.client.renderer.block.FluidRenderer;
+import net.minecraft.client.renderer.block.model.BlockDisplayContext;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -19,12 +23,19 @@ import java.util.function.BiConsumer;
 public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
     private final BlockState state;
     private final SingleBlockRenderRegion pseudoRegion;
+    private final BlockModelRenderState blockModelRenderState;
+    private final FluidRenderer fluidRenderer;
     private TextureTarget fluidTarget;
 
     public BlockImageRenderer(Minecraft minecraft, int width, int height, BlockState state) {
         super(minecraft, width, height);
         this.state = state;
         this.pseudoRegion = new SingleBlockRenderRegion(this.minecraft.level, state);
+        var blockModelResolver = new BlockModelResolver(minecraft.getModelManager());
+
+        this.blockModelRenderState = new BlockModelRenderState();
+        blockModelResolver.update(this.blockModelRenderState, state, BlockDisplayContext.create());
+        this.fluidRenderer = new FluidRenderer(this.minecraft.getModelManager().getFluidStateModelSet());
     }
 
     @Override
@@ -55,7 +66,8 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
             poseStack.last().normal().scale(1, -1, 1);
         }
 
-        this.featureRenderDispatcher.getSubmitNodeStorage().submitBlock(poseStack, this.state, 0, OverlayTexture.NO_OVERLAY, 0);
+
+        this.blockModelRenderState.submit(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), 0, OverlayTexture.NO_OVERLAY, 0);
         this.featureRenderDispatcher.renderAllFeatures();
         this.featureRenderDispatcher.endFrame();
         bufferSource.endBatch();
@@ -65,8 +77,8 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
             RenderSystem.getModelViewMatrix().set(poseStack.last().pose());
 
             var fluid = this.state.getFluidState();
-            var buffer = this.bufferSource.getBuffer(RenderTypes.translucentMovingBlock());
-            this.minecraft.getBlockRenderer().renderLiquid(BlockPos.ZERO, this.pseudoRegion, buffer, this.state, fluid);
+
+            this.fluidRenderer.tesselate(this.pseudoRegion, BlockPos.ZERO, x -> this.bufferSource.getBuffer(RenderTypes.translucentMovingBlock()), this.state, fluid);
             bufferSource.endBatch();
 
             RenderSystem.getModelViewMatrix().set(mat);

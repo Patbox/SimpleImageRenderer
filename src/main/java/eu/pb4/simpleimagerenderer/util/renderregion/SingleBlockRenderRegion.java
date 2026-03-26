@@ -1,5 +1,6 @@
 package eu.pb4.simpleimagerenderer.util.renderregion;
 
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
@@ -12,7 +13,7 @@ public class SingleBlockRenderRegion extends FakeRenderSectionRegion {
     private final BlockState state;
     private final LevelLightEngine light;
 
-    public SingleBlockRenderRegion(Level level, BlockState state) {
+    public SingleBlockRenderRegion(ClientLevel level, BlockState state) {
         super(level);
         this.state = state;
         this.light = new CustomLightEngine(this, x -> 15, x -> 15);

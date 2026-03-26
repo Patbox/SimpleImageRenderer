@@ -1,5 +1,7 @@
 package eu.pb4.simpleimagerenderer.util.renderregion;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.chunk.RenderSectionRegion;
 import net.minecraft.client.renderer.chunk.SectionCopy;
 import net.minecraft.core.BlockPos;
@@ -21,9 +23,9 @@ import org.jspecify.annotations.Nullable;
 import java.util.function.ToIntFunction;
 
 public abstract class FakeRenderSectionRegion extends RenderSectionRegion {
-    protected final Level level;
+    protected final ClientLevel level;
 
-    public FakeRenderSectionRegion(Level level) {
+    public FakeRenderSectionRegion(ClientLevel level) {
         super(level, 0, 0, 0, new SectionCopy[0]);
         this.level = level;
     }
@@ -42,16 +44,6 @@ public abstract class FakeRenderSectionRegion extends RenderSectionRegion {
     }
 
     @Override
-    public float getShade(Direction direction, boolean bl) {
-        return switch (direction) {
-            case DOWN -> 0.5F;
-            case UP -> 1.0F;
-            case NORTH, SOUTH -> 0.8F;
-            case WEST, EAST -> 0.6F;
-        };
-    }
-
-    @Override
     public abstract LevelLightEngine getLightEngine();
 
     @Override
@@ -67,6 +59,10 @@ public abstract class FakeRenderSectionRegion extends RenderSectionRegion {
         return pos;
     }
 
+    @Override
+    public CardinalLighting cardinalLighting() {
+        return this.level.cardinalLighting();
+    }
 
     public static class CustomLightEngine extends LevelLightEngine {
         public static final CustomLightEngine FULL_BRIGHT = new CustomLightEngine(x -> 15, x -> 15);

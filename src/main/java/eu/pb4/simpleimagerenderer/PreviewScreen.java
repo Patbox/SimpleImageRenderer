@@ -10,7 +10,7 @@ import eu.pb4.simpleimagerenderer.mixin.EditBoxAccessor;
 import eu.pb4.simpleimagerenderer.mixin.GuiGraphicsAccessor;
 import eu.pb4.simpleimagerenderer.renderer.*;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.*;
 import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
@@ -445,8 +445,10 @@ public class PreviewScreen<T> extends Screen {
         this.renderer.close();
     }
 
+
+
     @Override
-    public void render(GuiGraphics guiGraphics, int i, int j, float f) {
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int i, int j, float f) {
         {
             guiGraphics.blit(
                     RenderPipelines.GUI_TEXTURED,
@@ -464,7 +466,7 @@ public class PreviewScreen<T> extends Screen {
             guiGraphics.blit(RenderPipelines.GUI_TEXTURED, Screen.FOOTER_SEPARATOR, 0, this.layout.getHeaderHeight() + this.layout.getContentHeight(), 0.0F, 0.0F, width, 2, 32, 2);
 
         }
-        super.render(guiGraphics, i, j, f);
+        super.extractRenderState(guiGraphics, i, j, f);
 
         if (this.startDraggingImage) {
             guiGraphics.requestCursor(CursorTypes.RESIZE_ALL);
@@ -542,7 +544,7 @@ public class PreviewScreen<T> extends Screen {
                 guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
             }
 
-            ((GuiGraphicsAccessor) guiGraphics).callSubmitBlit(RenderPipelines.GUI_TEXTURED,
+            ((GuiGraphicsAccessor) guiGraphics).callInnerBlit(RenderPipelines.GUI_TEXTURED,
                     InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_M)
                             ? x.getDepthTextureView()
                             : x.getColorTextureView(), sampler,

@@ -3,7 +3,7 @@ package eu.pb4.simpleimagerenderer.mixin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.client.renderer.*;
-import net.minecraft.client.renderer.state.LevelRenderState;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.BlockDestructionProgress;
 import org.spongepowered.asm.mixin.gen.Accessor;
@@ -26,9 +26,6 @@ public interface LevelRendererAccessor {
     @Accessor("targets")
     LevelTargetBundle sim_getTargets();
 
-    @Invoker("getTransparencyChain")
-    PostChain sim_getTransparencyChain();
-
     @Invoker("renderBlockOutline")
     void sim_renderBlockOutline(MultiBufferSource.BufferSource bufferSource, PoseStack poseStack, boolean bl, LevelRenderState levelRenderState);
 
@@ -38,8 +35,8 @@ public interface LevelRendererAccessor {
     @Invoker("submitBlockEntities")
     void sim_submitBlockEntities(PoseStack poseStack, LevelRenderState levelRenderState, SubmitNodeStorage submitNodeStorage);
 
-    @Invoker("renderBlockDestroyAnimation")
-    void sim_renderBlockDestroyAnimation(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource, LevelRenderState levelRenderState);
+    @Invoker("submitBlockDestroyAnimation")
+    void sim_submitBlockDestroyAnimation(final PoseStack poseStack, final SubmitNodeCollector submitNodeCollector, final LevelRenderState levelRenderState);
 
     @Accessor("destructionProgress")
     Long2ObjectMap<SortedSet<BlockDestructionProgress>> sim_getDestructionProgress();

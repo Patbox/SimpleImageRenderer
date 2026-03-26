@@ -36,8 +36,8 @@ import net.minecraft.client.renderer.chunk.*;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.fog.FogRenderer;
-import net.minecraft.client.renderer.state.LevelRenderState;
-import net.minecraft.client.renderer.state.ParticlesRenderState;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
+import net.minecraft.client.renderer.state.level.ParticlesRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockBox;
 import net.minecraft.core.BlockPos;
@@ -191,7 +191,16 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
         var sorting = VertexSorting.byDistance(this.getCameraPos());
 
-        var compiler = new SectionCompiler(minecraft.getBlockRenderer(), minecraft.getBlockEntityRenderDispatcher());
+        var options = this.minecraft.options;
+        var compiler = new SectionCompiler(
+                options.ambientOcclusion().get(),
+                options.cutoutLeaves().get(),
+                this.minecraft.getModelManager().getBlockStateModelSet(),
+                this.minecraft.getModelManager().getFluidStateModelSet(),
+                this.minecraft.getBlockColors(),
+                this.minecraft.getBlockEntityRenderDispatcher()
+        );
+
         var sectionStart = SectionPos.of(area.min());
         var sectionEnd = SectionPos.of(area.max());
         var builder = minecraft.renderBuffers().fixedBufferPack();
@@ -341,7 +350,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         this.minecraft.level == null ? 0L : this.minecraft.level.getGameTime(),
                         deltaTracker,
                         this.minecraft.options.getMenuBackgroundBlurriness(),
-                        camera,
+                        center,
                         false
                 );
 
@@ -430,7 +439,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         this.minecraft.level == null ? 0L : this.minecraft.level.getGameTime(),
                         this.minecraft.getDeltaTracker(),
                         this.minecraft.options.getMenuBackgroundBlurriness(),
-                        this.minecraft.gameRenderer.getMainCamera(),
+                        this.minecraft.gameRenderer.getMainCamera().position(),
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
                 );
 
@@ -523,7 +532,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
                     this.featureRenderDispatcher.renderTranslucentFeatures();
                     bufferSource.endBatch();
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_renderBlockDestroyAnimation(poseStack, crumblingBufferSource, levelRenderState);
+                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockDestroyAnimation(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), levelRenderState);
 
                     crumblingBufferSource.endBatch();
 
