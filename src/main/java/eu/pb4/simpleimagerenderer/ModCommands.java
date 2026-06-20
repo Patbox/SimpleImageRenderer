@@ -212,7 +212,7 @@ class ModCommands {
     private static <T> void openRendererScreen(AbstractImageRenderer<T> renderer, AbstractImageRenderer.RenderConsumer<T> consumer) {
         RendererSettings.defaultSettings.applyAll(renderer);
         Minecraft.getInstance().execute(() -> {
-            Minecraft.getInstance().setScreen(new PreviewScreen<>(renderer, RendererSettings.defaultSettings.clone(), consumer));
+            Minecraft.getInstance().setScreenAndShow(new PreviewScreen<>(renderer, RendererSettings.defaultSettings.clone(), consumer));
         });
     }
 

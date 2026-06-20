@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
@@ -52,7 +53,7 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
         poseStack.scale(maxDim, maxDim, maxDim);
 
         var light = this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI);
-        minecraft.gameRenderer.getLighting().setupFor(light);
+        minecraft.gameRenderer.lighting().setupFor(light);
         if (light == Lighting.Entry.LEVEL) {
             poseStack.last().normal().scale(1, -1, 1);
         }
@@ -62,12 +63,10 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
 
         var d = minecraft.getEntityRenderDispatcher();
         for (var state : list) {
-            d.submit(state, cameraState, state.x - firstState.x, state.y - firstState.y, state.z - firstState.z, poseStack, this.featureRenderDispatcher.getSubmitNodeStorage());
+            d.submit(state, cameraState, state.x - firstState.x, state.y - firstState.y, state.z - firstState.z, poseStack, this.submitNodeStorage);
         }
 
-        this.featureRenderDispatcher.renderAllFeatures();
-        this.featureRenderDispatcher.endFrame();
-        this.bufferSource.endBatch();
+        this.featureRenderDispatcher.renderAllFeatures(this.submitNodeStorage);
 
         targetConsumer.rendered(this.renderTarget, this.entity, -1);
         poseStack.popPose();

@@ -1,6 +1,7 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
-import com.mojang.blaze3d.GraphicsWorkarounds;
+import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.IndexType;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
@@ -30,11 +31,11 @@ import net.minecraft.client.TextureFilteringMethod;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.DynamicUniforms;
 import net.minecraft.client.renderer.LevelTargetBundle;
-import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.PostChain;
 import net.minecraft.client.renderer.chunk.*;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.fog.FogRenderer;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.client.renderer.state.level.ParticlesRenderState;
@@ -66,6 +67,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
     @Nullable
     private final EntityRenderState selfEntityState;
     private final Map<ChunkSectionLayer, SectionUberBuffers> chunkUberBuffers;
+    private final StagingBuffer stagingBuffer;
 
     private boolean renderEntities = true;
     private boolean renderNametags = true;
@@ -88,11 +90,11 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         }
 
         var gpuDevice = RenderSystem.getDevice();
-        GraphicsWorkarounds workarounds = GraphicsWorkarounds.get(gpuDevice);
+        this.stagingBuffer = StagingBuffer.create("Chunk", gpuDevice, 102760448);
         this.chunkUberBuffers = Util.makeEnumMap(ChunkSectionLayer.class, (layer) -> {
-            VertexFormat vertexFormat = layer.pipeline().getVertexFormat();
-            UberGpuBuffer<SectionMesh> vertexUberBuffer = new UberGpuBuffer<>(layer.label(), 32, 134217728, vertexFormat.getVertexSize(), gpuDevice, 33554432, workarounds);
-            UberGpuBuffer<SectionMesh> indexUberBuffer = layer == ChunkSectionLayer.TRANSLUCENT ? new UberGpuBuffer<>(layer.label(), 64, 33554432, 8, gpuDevice, 2097152, workarounds) : null;
+            VertexFormat vertexFormat = layer.pipeline().getVertexFormatBinding(0);
+            UberGpuBuffer<SectionMesh> vertexUberBuffer = new UberGpuBuffer<>(layer.label(), 32, 134217728, vertexFormat.getVertexSize(), stagingBuffer);
+            UberGpuBuffer<SectionMesh> indexUberBuffer = layer == ChunkSectionLayer.TRANSLUCENT ? new UberGpuBuffer<>(layer.label(), 64, 33554432, 8, stagingBuffer) : null;
             return new SectionUberBuffers(vertexUberBuffer, indexUberBuffer);
         });
 
@@ -103,7 +105,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
         for (var section : this.sections) {
             for (var be : section.sectionMesh.getRenderableBlockEntities()) {
-                var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null);
+                var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null, true);
                 if (state != null) {
                     this.levelRenderState.blockEntityRenderStates.add(state);
                 }
@@ -111,7 +113,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
             for (var be : level.getGloballyRenderedBlockEntities()) {
                 if (area.contains(be.getBlockPos())) {
-                    var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null);
+                    var state = this.minecraft.getBlockEntityRenderDispatcher().tryExtractRenderState(be, 0, null, true);
                     if (state != null) {
                         this.levelRenderState.blockEntityRenderStates.add(state);
                     }
@@ -127,7 +129,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
         for (var entity : level.getEntities(null, area.aabb().inflate(0.01f))) {
             var state = minecraft.getEntityRenderDispatcher().extractEntity(entity, 0);
-            this.levelRenderState.haveGlowingEntities |= state.appearsGlowing();
+            this.levelRenderState.shouldShowEntityOutlines |= state.appearsGlowing();
             if (state instanceof AvatarRenderState avatarRenderState && avatarRenderState.id == minecraft.player.getId()) {
                 self = state;
                 continue;
@@ -146,9 +148,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
             this.entityStateBackup.add(new StateBackup(state.nameTag, state.lightCoords));
         }
 
-        if (this.levelRenderState.haveGlowingEntities) {
-            this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
-        }
+        this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true, GpuFormat.RGBA8_UNORM);
 
         this.updateStates();
     }
@@ -197,13 +197,12 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                 options.cutoutLeaves().get(),
                 this.minecraft.getModelManager().getBlockStateModelSet(),
                 this.minecraft.getModelManager().getFluidStateModelSet(),
-                this.minecraft.getBlockColors(),
-                this.minecraft.getBlockEntityRenderDispatcher()
+                this.minecraft.getBlockColors()
         );
 
         var sectionStart = SectionPos.of(area.min());
         var sectionEnd = SectionPos.of(area.max());
-        var builder = minecraft.renderBuffers().fixedBufferPack();
+        var builder = minecraft.gameRenderer.renderBuffers().fixedBufferPack();
         var iter = SectionPos.betweenClosedStream(sectionStart.x(), sectionStart.y(), sectionStart.z(), sectionEnd.x(), sectionEnd.y(), sectionEnd.z()).iterator();
         while (iter.hasNext()) {
             builder.discardAll();
@@ -252,6 +251,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                 buffers.indexBuffer.close();
             }
         }
+        this.stagingBuffer.close();
     }
 
     @Override
@@ -262,7 +262,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         }
         if (this.entityOutlineTarget != null) {
             this.entityOutlineTarget.destroyBuffers();
-            this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true);
+            this.entityOutlineTarget = new TextureTarget("Entity outline Renderer", this.renderTarget.width, this.renderTarget.height, true, GpuFormat.RGBA8_UNORM);
         }
     }
 
@@ -342,7 +342,8 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         camera.setPosition(center);
         camera.setRotation(cameraState.orientation);
 
-        this.minecraft.gameRenderer.getGlobalSettingsUniform()
+
+        ((GameRendererAccessor) this.minecraft.gameRenderer).getGlobalSettingsUniform()
                 .update(
                         this.renderTarget.width,
                         this.renderTarget.height,
@@ -374,9 +375,12 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         var oldEntityOutline = targets.entityOutline;
 
         targets.clear();
-        FrameGraphBuilder frameGraphBuilder = new FrameGraphBuilder();
 
-        targets.main = frameGraphBuilder.importExternal("main", this.renderTarget);
+        var featureFrame = this.featureRenderDispatcher.prepareFrame(this.submitNodeStorage);
+
+        FrameGraphBuilder frame = new FrameGraphBuilder();
+
+        targets.main = frame.importExternal("main", this.renderTarget);
         /*var renderTargetDescriptor = new RenderTargetDescriptor(this.renderTarget.width, this.renderTarget.height, true, 0);
         var postChain = ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_getTransparencyChain();
         if (postChain != null) {
@@ -389,21 +393,27 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
 
         if (this.entityOutlineTarget != null) {
-            targets.entityOutline = frameGraphBuilder.importExternal("entity_outline", this.entityOutlineTarget);
+            targets.entityOutline = frame.importExternal("entity_outline", this.entityOutlineTarget);
         }
 
         var modelView = RenderSystem.getModelViewStack();
         modelView.pushMatrix();
         modelView.mul(poseStack.last().pose());
 
-        var fogRenderer = ((GameRendererAccessor) this.minecraft.gameRenderer).getFogRenderer();
-        var worldFog = fogRenderer.getBuffer(FogRenderer.FogMode.NONE);
-        this.addMainPass(targets, frameGraphBuilder, poseStack, worldFog, false, this.levelRenderState);
 
-        PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
-        if (this.levelRenderState.haveGlowingEntities && outlinePostChain != null) {
-            outlinePostChain.addToFrame(frameGraphBuilder, this.renderTarget.width, this.renderTarget.height, targets);
+        if (this.renderEntities) {
+            ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
         }
+
+        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
+
+        this.particlesRenderState.submit(this.submitNodeStorage, this.levelRenderState.cameraRenderState);
+
+        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockDestroyAnimation(poseStack, this.submitNodeStorage, levelRenderState);
+
+        //if (renderOutlines) {
+        //    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_renderBlockOutline(poseStack, this.submitNodeStorage, levelRenderState);
+        //}
 
         if (this.renderParticles) {
             this.minecraft.particleEngine.extract(this.particlesRenderState, frustum, camera, deltaTracker.getGameTimeDeltaTicks());
@@ -411,11 +421,23 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
             this.particlesRenderState.reset();
         }
 
-        frameGraphBuilder.execute(this.resourcePool);
 
-        if (this.levelRenderState.haveGlowingEntities) {
-            this.entityOutlineTarget.blitAndBlendToTexture(this.renderTarget.getColorTextureView());
+        var fogRenderer = ((GameRendererAccessor) this.minecraft.gameRenderer).getFogRenderer();
+        var worldFog = fogRenderer.getBuffer(FogRenderer.FogMode.NONE);
+        this.addMainPass(targets, frame, featureFrame, poseStack, worldFog, false, this.levelRenderState);
+
+        PostChain outlinePostChain = this.minecraft.getShaderManager().getPostChain(LevelRendererAccessor.getENTITY_OUTLINE_POST_CHAIN_ID(), LevelTargetBundle.OUTLINE_TARGETS);
+        if (featureFrame.hasAnyOutline() && outlinePostChain != null) {
+            outlinePostChain.addToFrame(frame, this.renderTarget.width, this.renderTarget.height, targets);
         }
+
+        frame.execute(this.resourcePool);
+
+        if (featureFrame.hasAnyOutline()) {
+            this.entityOutlineTarget.blitAndBlendToTexture(this.renderTarget.getColorTextureView(), this.renderTarget.getDepthTextureView());
+        }
+
+        featureFrame.close();
         RenderUtils.mainRenderTargetReplacement = null;
 
         targetConsumer.rendered(this.renderTarget, this.area, -1);
@@ -431,7 +453,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         targets.clouds = oldTargetClouds;
         targets.entityOutline = oldEntityOutline;
 
-        this.minecraft.gameRenderer.getGlobalSettingsUniform()
+        ((GameRendererAccessor) this.minecraft.gameRenderer).getGlobalSettingsUniform()
                 .update(
                         this.minecraft.getWindow().getWidth(),
                         this.minecraft.getWindow().getHeight(),
@@ -439,7 +461,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         this.minecraft.level == null ? 0L : this.minecraft.level.getGameTime(),
                         this.minecraft.getDeltaTracker(),
                         this.minecraft.options.getMenuBackgroundBlurriness(),
-                        this.minecraft.gameRenderer.getMainCamera().position(),
+                        this.minecraft.gameRenderer.mainCamera().position(),
                         this.minecraft.options.textureFiltering().get() == TextureFilteringMethod.RGSS
                 );
 
@@ -449,7 +471,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
     private void addMainPass(
             LevelTargetBundle targets,
             FrameGraphBuilder frameGraphBuilder,
-            PoseStack sourcePoseStack,
+            FeatureRenderDispatcher.PreparedFrame featureFrame, PoseStack sourcePoseStack,
             GpuBufferSlice fog,
             boolean renderOutlines,
             LevelRenderState levelRenderState
@@ -472,7 +494,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
             targets.particles = framePass.readsAndWrites(targets.particles);
         }
 
-        if (levelRenderState.haveGlowingEntities && targets.entityOutline != null) {
+        if (featureFrame.hasAnyOutline() && targets.entityOutline != null) {
             targets.entityOutline = framePass.readsAndWrites(targets.entityOutline);
         }
 
@@ -484,36 +506,25 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         framePass.executes(
                 () -> {
                     RenderSystem.setShaderFog(fog);
-                    this.minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.LEVEL);
+                    this.minecraft.gameRenderer.lighting().setupFor(Lighting.Entry.LEVEL);
 
                     var chunkSections = this.prepareChunkRenders(sourcePoseStack.last().pose());
                     chunkSections.renderGroup(ChunkSectionLayerGroup.OPAQUE, this.chunkLayerSampler);
 
-                    if (this.levelRenderState.haveGlowingEntities && entityOutlineTarget != null) {
+                    if (this.levelRenderState.shouldShowEntityOutlines && entityOutlineTarget != null) {
                         RenderTarget renderTarget = entityOutlineTarget.get();
-                        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(renderTarget.getColorTexture(), 0, renderTarget.getDepthTexture(), 1.0);
+                        clearBuffer(renderTarget);
                     }
 
 
                     PoseStack poseStack = new PoseStack();
 
-                    MultiBufferSource.BufferSource bufferSource = this.renderBuffers.bufferSource();
-                    MultiBufferSource.BufferSource crumblingBufferSource = this.renderBuffers.crumblingBufferSource();
+                    featureFrame.executeSolid();
 
-                    if (this.renderEntities) {
-                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitEntities(poseStack, levelRenderState, this.submitNodeStorage);
-                    }
-
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockEntities(poseStack, levelRenderState, this.submitNodeStorage);
-
-                    this.particlesRenderState.submit(this.submitNodeStorage, this.levelRenderState.cameraRenderState);
-
-                    this.featureRenderDispatcher.renderSolidFeatures();
-                    bufferSource.endBatch();
                     this.solidifyBuffer(this.renderTarget);
 
                     if (itemEntityTarget != null) {
-                        itemEntityTarget.get().copyDepthFrom(this.minecraft.getMainRenderTarget());
+                        itemEntityTarget.get().copyDepthFrom(this.minecraft.gameRenderer.mainRenderTarget());
                     }
 
                     this.checkPoseStack(poseStack);
@@ -529,31 +540,12 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         particleTarget.get().copyDepthFrom(mainTarget.get());
                     }
 
-
-                    this.featureRenderDispatcher.renderTranslucentFeatures();
-                    bufferSource.endBatch();
-                    ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_submitBlockDestroyAnimation(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), levelRenderState);
-
-                    crumblingBufferSource.endBatch();
-
-
-                    this.renderBuffers.outlineBufferSource().endOutlineBatch();
-
-                    //this.finalizeGizmoCollection();
-                    //this.finalizedGizmos.standardPrimitives().render(poseStack, bufferSource, levelRenderState.cameraRenderState, matrix);
-                    bufferSource.endBatch();
-                    this.checkPoseStack(poseStack);
-                    crumblingBufferSource.endBatch();
-                    this.checkPoseStack(poseStack);
+                    featureFrame.executeTranslucent();
+                    featureFrame.executeOutline();
 
                     chunkSections.renderGroup(ChunkSectionLayerGroup.TRANSLUCENT, this.chunkLayerSampler);
-                    if (renderOutlines) {
-                        ((LevelRendererAccessor) this.minecraft.levelRenderer).sim_renderBlockOutline(bufferSource, poseStack, false, levelRenderState);
-                    }
-                    bufferSource.endBatch();
-                    this.featureRenderDispatcher.renderTranslucentParticles();
-                    bufferSource.endBatch();
-                    this.featureRenderDispatcher.clearSubmitNodes();
+
+                    featureFrame.executeTranslucentAfterTerrain();
                     this.particlesRenderState.reset();
                 }
         );
@@ -578,7 +570,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
         super.updateMatrix(matrix4f, quaternionf);
         var vec = this.getCameraPos();
         var vec3 = new Vec3(vec);
-        var builder = minecraft.renderBuffers().fixedBufferPack();
+        var builder = minecraft.gameRenderer.renderBuffers().fixedBufferPack();
 
         builder.discardAll();
         for (var section : this.sections) {
@@ -645,22 +637,19 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
     }
 
     public void uploadGlobalGeomBuffersToGPU() {
-        CommandEncoder commandEncoder = RenderSystem.getDevice().createCommandEncoder();
-        boolean performedBufferResize = false;
+        var device = RenderSystem.getDevice();
 
-        for (var buffers : this.chunkUberBuffers.values()) {
-            UberGpuBuffer<SectionMesh> vertexBuffer = buffers.vertexBuffer;
-            if (performedBufferResize) {
-                break;
-            }
-
-            performedBufferResize = vertexBuffer.uploadStagedAllocations(RenderSystem.getDevice(), commandEncoder);
-            UberGpuBuffer<SectionMesh> indexBuffer = buffers.indexBuffer;
-            if (indexBuffer != null) {
-                indexBuffer.uploadStagedAllocations(RenderSystem.getDevice(), commandEncoder);
+        try (var uploader = this.stagingBuffer.startUploading(device.createCommandEncoder())) {
+            for (var buffers : this.chunkUberBuffers.values()) {
+                boolean performedBufferResize = buffers.vertexBuffer.uploadStagedAllocations(device, uploader);
+                if (buffers.indexBuffer != null) {
+                    buffers.indexBuffer.uploadStagedAllocations(device, uploader);
+                }
+                if (performedBufferResize) {
+                    break;
+                }
             }
         }
-
     }
 
     void vertexBufferUploadCallback(final SectionMesh sectionMesh, final ChunkSectionLayer layer) {
@@ -766,7 +755,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
                         }
 
                         int combinedHash = 173;
-                        VertexFormat vertexFormat = layer.pipeline().getVertexFormat();
+                        VertexFormat vertexFormat = layer.pipeline().getVertexFormatBinding(0);
                         GpuBuffer vertexBuffer = slice.vertexBuffer();
                         if (layer != ChunkSectionLayer.TRANSLUCENT) {
                             combinedHash = 31 * combinedHash + vertexBuffer.hashCode();
@@ -774,7 +763,7 @@ public class RegionImageRenderer extends AbstractImageRenderer<BlockBox> {
 
                         int firstIndex = 0;
                         GpuBuffer indexBuffer;
-                        VertexFormat.IndexType indexType;
+                        IndexType indexType;
                         if (!draw.hasCustomIndexBuffer()) {
                             if (draw.indexCount() > largestIndexCount) {
                                 largestIndexCount = draw.indexCount();

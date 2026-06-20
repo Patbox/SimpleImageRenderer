@@ -1,7 +1,7 @@
 package eu.pb4.simpleimagerenderer.mixin;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import net.minecraft.advancements.criterion.MinMaxBounds;
+import net.minecraft.advancements.predicates.MinMaxBounds;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.selector.EntitySelector;
 import net.minecraft.server.level.ServerLevel;

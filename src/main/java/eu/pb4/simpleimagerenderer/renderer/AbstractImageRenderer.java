@@ -1,5 +1,6 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
+import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.ProjectionType;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
@@ -20,6 +21,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
+import org.joml.Vector4f;
 
 import java.util.OptionalInt;
 import java.util.function.BiConsumer;
@@ -29,7 +31,6 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final RenderBuffers renderBuffers;
     protected final SubmitNodeStorage submitNodeStorage;
     protected final FeatureRenderDispatcher featureRenderDispatcher;
-    protected final MultiBufferSource.BufferSource bufferSource;
     protected final ProjectionMatrixBuffer perspectiveBuffer;
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected final Matrix4f matrix = new Matrix4f();
@@ -48,10 +49,9 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public AbstractImageRenderer(Minecraft minecraft, int width, int height) {
         this.minecraft = minecraft;
-        this.featureRenderDispatcher = minecraft.gameRenderer.getFeatureRenderDispatcher();
-        this.submitNodeStorage = this.featureRenderDispatcher.getSubmitNodeStorage();
-        this.renderBuffers = minecraft.renderBuffers();
-        this.bufferSource = minecraft.renderBuffers().bufferSource();
+        this.featureRenderDispatcher = minecraft.gameRenderer.featureRenderDispatcher();
+        this.submitNodeStorage = new SubmitNodeStorage();
+        this.renderBuffers = minecraft.gameRenderer.renderBuffers();
         this.perspectiveBuffer = new ProjectionMatrixBuffer("render");
         this.setupTexture(width, height);
     }
@@ -76,13 +76,14 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
         var oldOutputColor = RenderSystem.outputColorTextureOverride;
         var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
-        var oldModelViewMatrix = new Matrix4f(RenderSystem.getModelViewMatrix());
-        RenderSystem.getModelViewMatrix().identity();
+        var oldModelViewMatrix = RenderSystem.getModelViewMatrixCopy();
+        RenderSystem.getModelViewStack().identity();
         RenderSystem.outputColorTextureOverride = renderTarget.getColorTextureView();
         RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
+        RenderSystem.disableScissorForRenderTypeDraws();
         RenderSystem.backupProjectionMatrix();
         // Technically not correct, but this fixes issues with z-ordering of entity shadows and alike.
-        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.PERSPECTIVE);
+        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.ORTHOGRAPHIC);
 
         var oldLightmap = ((GameRendererAccessor) this.minecraft.gameRenderer).isUseUiLightmap();
         ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(this.lightmapType.useUiLightmap(this.useUiLightmapByDefault));
@@ -98,7 +99,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
         RenderSystem.restoreProjectionMatrix();
 
-        RenderSystem.getModelViewMatrix().set(oldModelViewMatrix);
+        RenderSystem.getModelViewStack().set(oldModelViewMatrix);
         RenderSystem.outputColorTextureOverride = oldOutputColor;
         RenderSystem.outputDepthTextureOverride = oldOutputDepth;
         RenderUtils.glintTimeOverride = -1;
@@ -109,7 +110,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     protected void clearBuffer(RenderTarget target) {
-        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), 0, target.getDepthTexture(), 1);
+        var depth = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne() ? 0 : -1;
+        RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), new Vector4f(0), target.getDepthTexture(), depth);
     }
 
     protected void solidifyBuffer(RenderTarget target) {
@@ -136,7 +138,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.width = width;
         this.height = height;
 
-        this.renderTarget = new TextureTarget("image_out", width, height, true);
+        this.renderTarget = new TextureTarget("image_out", width, height, true, GpuFormat.RGBA8_UNORM);
         this.updateProjectionMatrix();
     }
 
@@ -150,12 +152,14 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     }
 
     private void updateProjectionMatrix() {
+        var zeroToOne = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
+
         if (this.projectionType == ProjectionType.ORTHOGRAPHIC) {
-            this.projectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, -5000.0F, 5000.0F);
+            this.projectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, 5000.0F, -5000.0F, zeroToOne);
         } else {
             this.projectionMatrix.identity().perspective(
-                    90 * (float) (Math.PI / 180.0), 1, 0.05F, 50000
-            );
+                    90 * (float) (Math.PI / 180.0), 1, 50000, 0.05F, zeroToOne
+                    );
         }
     }
 

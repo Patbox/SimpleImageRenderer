@@ -4,8 +4,11 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import eu.pb4.simpleimagerenderer.util.renderregion.SingleBlockRenderRegion;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.block.BlockModelRenderState;
 import net.minecraft.client.renderer.block.BlockModelResolver;
 import net.minecraft.client.renderer.block.FluidRenderer;
@@ -61,27 +64,27 @@ public class BlockImageRenderer extends AbstractImageRenderer<BlockState> {
 
         poseStack.scale(width, -width, width);
         var light = this.lightingType.getEntry(Lighting.Entry.LEVEL);
-        minecraft.gameRenderer.getLighting().setupFor(light);
+        minecraft.gameRenderer.lighting().setupFor(light);
         if (light == Lighting.Entry.LEVEL) {
             poseStack.last().normal().scale(1, -1, 1);
         }
 
 
-        this.blockModelRenderState.submit(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), 0, OverlayTexture.NO_OVERLAY, 0);
-        this.featureRenderDispatcher.renderAllFeatures();
-        this.featureRenderDispatcher.endFrame();
-        bufferSource.endBatch();
+        this.blockModelRenderState.submit(poseStack, this.submitNodeStorage, 0, OverlayTexture.NO_OVERLAY, 0);
+        this.featureRenderDispatcher.renderAllFeatures(this.submitNodeStorage);
 
         if (!this.state.getFluidState().isEmpty()) {
-            var mat = new Matrix4f(RenderSystem.getModelViewMatrix());
-            RenderSystem.getModelViewMatrix().set(poseStack.last().pose());
-
             var fluid = this.state.getFluidState();
 
-            this.fluidRenderer.tesselate(this.pseudoRegion, BlockPos.ZERO, x -> this.bufferSource.getBuffer(RenderTypes.translucentMovingBlock()), this.state, fluid);
-            bufferSource.endBatch();
+            this.submitNodeStorage.submitCustomGeometry(poseStack, RenderTypes.translucentMovingBlock(), (pose, buffer) -> {
 
-            RenderSystem.getModelViewMatrix().set(mat);
+                this.fluidRenderer.tesselate(this.pseudoRegion, BlockPos.ZERO, x -> buffer, this.state, fluid);
+            });
+
+            RenderSystem.getModelViewStack().pushMatrix();
+            RenderSystem.getModelViewStack().set(poseStack.last().pose());
+            this.featureRenderDispatcher.renderAllFeatures(this.submitNodeStorage);
+            RenderSystem.getModelViewStack().popMatrix();
         }
 
 

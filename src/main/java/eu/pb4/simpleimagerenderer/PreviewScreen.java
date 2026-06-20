@@ -414,9 +414,9 @@ public class PreviewScreen<T> extends Screen {
 
         linearLayout.addChild(Button.builder(button("render"), (button) -> {
             if (!Minecraft.getInstance().hasShiftDown()) {
-                this.minecraft.setScreen(null);
+                this.minecraft.gui.setScreen(null);
             } else {
-                this.minecraft.getToastManager().addToast(new SystemToast(
+                this.minecraft.gui.toastManager().addToast(new SystemToast(
                         SystemToast.SystemToastId.PACK_LOAD_FAILURE,
                         text("rendered_image"),
                         null
@@ -427,7 +427,7 @@ public class PreviewScreen<T> extends Screen {
 
         linearLayout.addChild(Button.builder(button("save_settings"), btn -> {
             RendererSettings.defaultSettings = this.settings.clone();
-            this.minecraft.getToastManager().addToast(new SystemToast(
+            this.minecraft.gui.toastManager().addToast(new SystemToast(
                     SystemToast.SystemToastId.PACK_LOAD_FAILURE,
                     text("saved_configuration"),
                     null
@@ -435,7 +435,7 @@ public class PreviewScreen<T> extends Screen {
         }).width(85).build());
 
         linearLayout.addChild(Button.builder(CommonComponents.GUI_CANCEL, (button) -> {
-            this.minecraft.setScreen(null);
+            this.minecraft.gui.setScreen(null);
         }).width(85).build());
     }
 

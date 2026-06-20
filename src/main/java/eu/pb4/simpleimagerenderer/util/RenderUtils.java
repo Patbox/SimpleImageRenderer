@@ -1,6 +1,7 @@
 package eu.pb4.simpleimagerenderer.util;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.CommandEncoder;
@@ -21,7 +22,7 @@ public class RenderUtils {
         if (sourceTexture == null) {
             throw new IllegalStateException("Tried to capture screenshot of an incomplete framebuffer");
         } else {
-            GpuBuffer buffer = RenderSystem.getDevice().createBuffer(() -> "Screenshot buffer", 9, (long) width * height * sourceTexture.getFormat().pixelSize());
+            GpuBuffer buffer = RenderSystem.getDevice().createBuffer(() -> "Screenshot buffer", 9, (long) width * height * sourceTexture.getFormat().blockSize());
             CommandEncoder commandEncoder = RenderSystem.getDevice().createCommandEncoder();
             RenderSystem.getDevice()
                     .createCommandEncoder()
@@ -30,12 +31,12 @@ public class RenderUtils {
                             buffer,
                             0L,
                             () -> {
-                                try (GpuBuffer.MappedView read = commandEncoder.mapBuffer(buffer, true, false);
+                                try (GpuBufferSlice.MappedView read = buffer.map(true, false);
                                      NativeImage image = new NativeImage(width, height, false)
                                 ) {
                                     for (int y = 0; y < height; y++) {
                                         for (int x = 0; x < width; x++) {
-                                            int argb = read.data().getInt((x + y * width) * sourceTexture.getFormat().pixelSize());
+                                            int argb = read.data().getInt((x + y * width) * sourceTexture.getFormat().blockSize());
                                             image.setPixelABGR(x, height - y - 1, argb);
                                         }
                                     }

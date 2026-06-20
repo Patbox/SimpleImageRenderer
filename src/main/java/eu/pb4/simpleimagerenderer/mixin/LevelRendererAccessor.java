@@ -26,18 +26,18 @@ public interface LevelRendererAccessor {
     @Accessor("targets")
     LevelTargetBundle sim_getTargets();
 
-    @Invoker("renderBlockOutline")
-    void sim_renderBlockOutline(MultiBufferSource.BufferSource bufferSource, PoseStack poseStack, boolean bl, LevelRenderState levelRenderState);
+    @Invoker("submitBlockOutline")
+    void sim_renderBlockOutline(final PoseStack poseStack, final SubmitNodeCollector submitNodeCollector, final LevelRenderState levelRenderState);
 
     @Invoker("submitEntities")
     void sim_submitEntities(PoseStack poseStack, LevelRenderState levelRenderState, SubmitNodeCollector submitNodeCollector);
 
     @Invoker("submitBlockEntities")
-    void sim_submitBlockEntities(PoseStack poseStack, LevelRenderState levelRenderState, SubmitNodeStorage submitNodeStorage);
+    void sim_submitBlockEntities(final PoseStack poseStack, final LevelRenderState levelRenderState, final SubmitNodeCollector submitNodeCollector);
 
     @Invoker("submitBlockDestroyAnimation")
     void sim_submitBlockDestroyAnimation(final PoseStack poseStack, final SubmitNodeCollector submitNodeCollector, final LevelRenderState levelRenderState);
 
-    @Accessor("destructionProgress")
-    Long2ObjectMap<SortedSet<BlockDestructionProgress>> sim_getDestructionProgress();
+    //@Accessor("destructionProgress")
+    //Long2ObjectMap<SortedSet<BlockDestructionProgress>> sim_getDestructionProgress();
 }

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.item.TrackingItemStackRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.network.chat.Component;
@@ -57,17 +58,18 @@ public class ItemImageRenderer extends AbstractImageRenderer<ItemStack> {
         var state = new TrackingItemStackRenderState();
         minecraft.getItemModelResolver().updateForTopItem(state, stack, this.displayContext, null, null, 0);
         var light = this.lightingType.getEntry(state.usesBlockLight() ? Lighting.Entry.ITEMS_3D : Lighting.Entry.ITEMS_FLAT);
-        minecraft.gameRenderer.getLighting().setupFor(light);
+        minecraft.gameRenderer.lighting().setupFor(light);
         if (light == Lighting.Entry.LEVEL) {
             poseStack.last().normal().scale(1, -1, 1);
         }
 
         //minecraft.options.glintSpeed()
-        state.submit(poseStack, this.featureRenderDispatcher.getSubmitNodeStorage(), 0, OverlayTexture.NO_OVERLAY, 0);
+        state.submit(poseStack, this.submitNodeStorage, 0, OverlayTexture.NO_OVERLAY, 0);
 
-        this.featureRenderDispatcher.renderAllFeatures();
-        this.featureRenderDispatcher.endFrame();
-        bufferSource.endBatch();
+        this.featureRenderDispatcher.renderAllFeatures(this.submitNodeStorage);
+
+        //this.featureRenderDispatcher.endFrame();
+        //bufferSource.endBatch();
     }
 
     public ItemDisplayContext displayContext() {

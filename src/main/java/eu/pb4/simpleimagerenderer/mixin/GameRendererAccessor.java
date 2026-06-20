@@ -1,5 +1,6 @@
 package eu.pb4.simpleimagerenderer.mixin;
 
+import net.minecraft.client.renderer.GlobalSettingsUniform;
 import net.minecraft.client.renderer.fog.FogRenderer;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
@@ -13,4 +14,7 @@ public interface GameRendererAccessor {
 
     @Accessor
     void setUseUiLightmap(boolean useUiLightmap);
+
+    @Accessor
+    GlobalSettingsUniform getGlobalSettingsUniform();
 }

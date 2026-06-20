@@ -11,7 +11,7 @@
     "GameRendererAccessor",
     "GuiGraphicsAccessor",
     "LevelRendererAccessor",
-    "MinecraftMixin",
+    "GameRendererMixin",
     "ParticleEngineAccessor"
   ],
   "client": [
