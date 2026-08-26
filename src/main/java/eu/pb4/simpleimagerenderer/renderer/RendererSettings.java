@@ -59,7 +59,7 @@ public class RendererSettings implements Cloneable {
         }
 
         renderer.updateMatrix(mat,
-                new Quaternionf().rotateZYX(this.roll * Mth.DEG_TO_RAD, -this.yaw * Mth.DEG_TO_RAD, this.pitch * Mth.DEG_TO_RAD)
+                new Quaternionf().rotateZYX(this.roll * Mth.DEG_TO_RAD, -this.yaw * Mth.DEG_TO_RAD, this.pitch * Mth.DEG_TO_RAD * (renderer instanceof RegionImageRenderer ? -1 : 1))
         );
     }
 

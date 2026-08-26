@@ -2,13 +2,10 @@ package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.ProjectionType;
-import com.mojang.blaze3d.pipeline.MainTarget;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.resource.CrossFrameResourcePool;
-import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
@@ -16,15 +13,11 @@ import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
-import net.minecraft.client.renderer.texture.SpriteContents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector4f;
-
-import java.util.OptionalInt;
-import java.util.function.BiConsumer;
 
 public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Minecraft minecraft;
@@ -32,6 +25,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final SubmitNodeStorage submitNodeStorage;
     protected final FeatureRenderDispatcher featureRenderDispatcher;
     protected final ProjectionMatrixBuffer perspectiveBuffer;
+    protected final Matrix4f baseProjectionMatrix = new Matrix4f();
     protected final Matrix4f projectionMatrix = new Matrix4f();
     protected final Matrix4f matrix = new Matrix4f();
     protected final Quaternionf cameraOrientation = new Quaternionf();
@@ -83,7 +77,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.disableScissorForRenderTypeDraws();
         RenderSystem.backupProjectionMatrix();
         // Technically not correct, but this fixes issues with z-ordering of entity shadows and alike.
-        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.projectionMatrix), ProjectionType.ORTHOGRAPHIC);
+        RenderSystem.setProjectionMatrix(this.perspectiveBuffer.getBuffer(this.calculateProjectionMatrix()), ProjectionType.PERSPECTIVE);
 
         var oldLightmap = ((GameRendererAccessor) this.minecraft.gameRenderer).isUseUiLightmap();
         ((GameRendererAccessor) this.minecraft.gameRenderer).setUseUiLightmap(this.lightmapType.useUiLightmap(this.useUiLightmapByDefault));
@@ -103,6 +97,10 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.outputColorTextureOverride = oldOutputColor;
         RenderSystem.outputDepthTextureOverride = oldOutputDepth;
         RenderUtils.glintTimeOverride = -1;
+    }
+
+    protected Matrix4f calculateProjectionMatrix() {
+        return this.projectionMatrix.set(this.baseProjectionMatrix);
     }
 
     protected void clearBuffer() {
@@ -155,9 +153,9 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         var zeroToOne = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
 
         if (this.projectionType == ProjectionType.ORTHOGRAPHIC) {
-            this.projectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, 5000.0F, -5000.0F, zeroToOne);
+            this.baseProjectionMatrix.identity().setOrtho(-width / 2f, width / 2f, height / 2f, -height / 2f, 5000.0F, -5000.0F, zeroToOne);
         } else {
-            this.projectionMatrix.identity().perspective(
+            this.baseProjectionMatrix.identity().perspective(
                     90 * (float) (Math.PI / 180.0), 1, 50000, 0.05F, zeroToOne
                     );
         }
