@@ -2,17 +2,21 @@ package eu.pb4.simpleimagerenderer.renderer;
 
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 
 import java.util.ArrayList;
+import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -31,45 +35,52 @@ public class EntityImageRenderer extends AbstractImageRenderer<Entity> {
 
     @Override
     protected void renderInner(RenderConsumer<Entity> targetConsumer, boolean preview) {
-        var list = new ArrayList<EntityRenderState>();
-        this.extractStates(entity, list::add);
-        var firstState = list.getFirst();
+        try (var frame = this.featureRenderDispatcher.prepareFrame(this.submitNodeStorage);
+             var renderPass = RenderSystem.getDevice()
+                     .createCommandEncoder()
+                     .createRenderPass(() -> "image", this.renderTarget.getColorTextureView(), Optional.empty(), this.renderTarget.getDepthTextureView(), OptionalDouble.empty());
+        ) {
+            var list = new ArrayList<EntityRenderState>();
+            this.extractStates(entity, list::add);
+            var firstState = list.getFirst();
 
-        var bHeight = 0d;
-        var bWidth = 0d;
+            var bHeight = 0d;
+            var bWidth = 0d;
 
-        for (var state : list) {
-            bHeight = Math.max(bHeight, state.boundingBoxHeight + state.y - firstState.y);
-            bWidth = Math.max(bWidth, state.boundingBoxWidth + state.x - firstState.x);
+            for (var state : list) {
+                bHeight = Math.max(bHeight, state.boundingBoxHeight + state.y - firstState.y);
+                bWidth = Math.max(bWidth, state.boundingBoxWidth + state.x - firstState.x);
+            }
+
+            var poseStack = new PoseStack();
+            poseStack.pushPose();
+            this.multiplyPoseStack(poseStack);
+            poseStack.translate(0, width / 1.1f - width / 2f, 0);
+
+            poseStack.scale(width, -width, width);
+            var maxDim = 1 /  (float) (Math.max(bHeight, bWidth) + 0.5f);
+            poseStack.scale(maxDim, maxDim, maxDim);
+
+            var light = this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI);
+            minecraft.gameRenderer.lighting().setupFor(light);
+            if (light == Lighting.Entry.LEVEL) {
+                poseStack.last().normal().scale(1, -1, 1);
+            }
+
+            var cameraState = new CameraRenderState();
+            cameraState.orientation = this.cameraOrientation;
+
+            var d = minecraft.getEntityRenderDispatcher();
+            for (var state : list) {
+                d.submit(state, cameraState, state.x - firstState.x, state.y - firstState.y, state.z - firstState.z, poseStack, this.submitNodeStorage);
+            }
+            RenderSystem.bindDefaultUniforms(renderPass);
+            FeatureRenderDispatcher.renderAllFeatures(renderPass, frame);
+
+            poseStack.popPose();
         }
-
-        var poseStack = new PoseStack();
-        poseStack.pushPose();
-        this.multiplyPoseStack(poseStack);
-        poseStack.translate(0, width / 1.1f - width / 2f, 0);
-
-        poseStack.scale(width, -width, width);
-        var maxDim = 1 /  (float) (Math.max(bHeight, bWidth) + 0.5f);
-        poseStack.scale(maxDim, maxDim, maxDim);
-
-        var light = this.lightingType.getEntry(Lighting.Entry.ENTITY_IN_UI);
-        minecraft.gameRenderer.lighting().setupFor(light);
-        if (light == Lighting.Entry.LEVEL) {
-            poseStack.last().normal().scale(1, -1, 1);
-        }
-
-        var cameraState = new CameraRenderState();
-        cameraState.orientation = this.cameraOrientation;
-
-        var d = minecraft.getEntityRenderDispatcher();
-        for (var state : list) {
-            d.submit(state, cameraState, state.x - firstState.x, state.y - firstState.y, state.z - firstState.z, poseStack, this.submitNodeStorage);
-        }
-
-        this.featureRenderDispatcher.renderAllFeatures(this.submitNodeStorage);
 
         targetConsumer.rendered(this.renderTarget, this.entity, -1);
-        poseStack.popPose();
     }
 
     private void extractStates(Entity entity, Consumer<EntityRenderState> consumer) {

@@ -1,5 +1,6 @@
 package eu.pb4.simpleimagerenderer;
 
+import com.mojang.blaze3d.Blaze3D;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
@@ -97,7 +98,7 @@ class ModCommands {
     }
 
     private static int openFolder(CommandContext<FabricClientCommandSource> ctx) {
-        Util.getPlatform().openPath(MAIN_PATH);
+        Blaze3D.openPath(MAIN_PATH);
         return 1;
     }
 

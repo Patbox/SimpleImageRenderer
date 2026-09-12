@@ -1,13 +1,15 @@
 package eu.pb4.simpleimagerenderer.renderer;
 
-import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.resource.CrossFrameResourcePool;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.systems.ScissorState;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.renderpearl.api.GpuFormat;
 import eu.pb4.simpleimagerenderer.mixin.GameRendererAccessor;
 import eu.pb4.simpleimagerenderer.util.RenderUtils;
 import net.minecraft.client.Minecraft;
@@ -15,6 +17,7 @@ import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector4f;
@@ -31,6 +34,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
     protected final Quaternionf cameraOrientation = new Quaternionf();
     protected final CrossFrameResourcePool resourcePool = new CrossFrameResourcePool(3);
 
+    @NotNull
     protected RenderTarget renderTarget;
     protected int height;
     protected int width;
@@ -68,12 +72,8 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public void render(RenderConsumer<T> targetConsumer, boolean preview) {
         RenderUtils.glintTimeOverride = this.glintTime < 0 ? -1 : this.glintTime;
-        var oldOutputColor = RenderSystem.outputColorTextureOverride;
-        var oldOutputDepth = RenderSystem.outputDepthTextureOverride;
         var oldModelViewMatrix = RenderSystem.getModelViewMatrixCopy();
         RenderSystem.getModelViewStack().identity();
-        RenderSystem.outputColorTextureOverride = renderTarget.getColorTextureView();
-        RenderSystem.outputDepthTextureOverride = renderTarget.getDepthTextureView();
         RenderSystem.disableScissorForRenderTypeDraws();
         RenderSystem.backupProjectionMatrix();
         // Technically not correct, but this fixes issues with z-ordering of entity shadows and alike.
@@ -94,8 +94,6 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         RenderSystem.restoreProjectionMatrix();
 
         RenderSystem.getModelViewStack().set(oldModelViewMatrix);
-        RenderSystem.outputColorTextureOverride = oldOutputColor;
-        RenderSystem.outputDepthTextureOverride = oldOutputDepth;
         RenderUtils.glintTimeOverride = -1;
     }
 
@@ -117,9 +115,15 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
                Identifier.fromNamespaceAndPath("simpleimagerenderer", "solidify"),
                LevelTargetBundle.MAIN_TARGETS
        );
-        if (postChain != null) {
-            postChain.process(target, this.resourcePool);
-        }
+       if (postChain != null) {
+           var old = new ScissorState(RenderSystem.getScissorStateForRenderTypeDraws());
+           RenderSystem.getScissorStateForRenderTypeDraws().disable();
+           var frame = new FrameGraphBuilder();
+           PostChain.TargetBundle targets = PostChain.TargetBundle.of(PostChain.MAIN_TARGET_ID, frame.importExternal("main", target));
+           postChain.addToFrame(frame, target.width, target.height, targets);
+           frame.execute(this.resourcePool);
+           RenderSystem.getScissorStateForRenderTypeDraws().setFrom(old);
+       }
     }
 
     protected abstract void renderInner(RenderConsumer<T> targetConsumer, boolean preview);
@@ -136,7 +140,7 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
         this.width = width;
         this.height = height;
 
-        this.renderTarget = new TextureTarget("image_out", width, height, true, GpuFormat.RGBA8_UNORM);
+        this.renderTarget = new TextureTarget("image_out", width, height, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
         this.updateProjectionMatrix();
     }
 
@@ -221,6 +225,10 @@ public abstract class AbstractImageRenderer<T> implements AutoCloseable {
 
     public RenderBuffers renderBuffers() {
         return this.renderBuffers;
+    }
+
+    public RenderTarget renderTarget() {
+        return this.renderTarget;
     }
 
 

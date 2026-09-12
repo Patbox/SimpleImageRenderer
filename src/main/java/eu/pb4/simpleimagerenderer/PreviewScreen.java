@@ -4,8 +4,8 @@ import com.mojang.blaze3d.ProjectionType;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.AddressMode;
-import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.AddressMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import eu.pb4.simpleimagerenderer.mixin.EditBoxAccessor;
 import eu.pb4.simpleimagerenderer.mixin.GuiGraphicsAccessor;
 import eu.pb4.simpleimagerenderer.renderer.*;
@@ -28,7 +28,6 @@ import net.minecraft.util.CommonColors;
 import net.minecraft.util.Mth;
 import net.minecraft.util.StringUtil;
 import net.minecraft.world.item.ItemDisplayContext;
-import org.lwjgl.glfw.GLFW;
 
 import java.math.RoundingMode;
 import java.text.NumberFormat;
@@ -527,7 +526,7 @@ public class PreviewScreen<T> extends Screen {
             guiGraphics.fill(endX, startY, endX + mult, endY, outlineColor);
             var sampler = RenderSystem.getSamplerCache().getSampler(AddressMode.REPEAT, AddressMode.REPEAT, FilterMode.NEAREST, FilterMode.NEAREST, false);
 
-            if (InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_B)) {
+            if (InputConstants.isKeyDown(InputConstants.KEY_B)) {
                 guiGraphics.blit(
                         RenderPipelines.GUI_TEXTURED,
                         PREVIEW_BACKGROUND_ALT,
@@ -540,12 +539,12 @@ public class PreviewScreen<T> extends Screen {
                         16
                 );
 
-            } else if (!InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_N)) {
+            } else if (!InputConstants.isKeyDown(InputConstants.KEY_N)) {
                 guiGraphics.fill(startX, startY, endX, endY, 0xFF000000);
             }
 
             ((GuiGraphicsAccessor) guiGraphics).callInnerBlit(RenderPipelines.GUI_TEXTURED,
-                    InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), GLFW.GLFW_KEY_M)
+                    InputConstants.isKeyDown(InputConstants.KEY_M)
                             ? x.getDepthTextureView()
                             : x.getColorTextureView(), sampler,
                     startX, startY, endX, endY,

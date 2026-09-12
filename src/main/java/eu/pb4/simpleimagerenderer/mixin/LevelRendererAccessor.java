@@ -18,11 +18,6 @@ public interface LevelRendererAccessor {
         throw new UnsupportedOperationException();
     }
 
-    @Accessor
-    static Identifier getTRANSPARENCY_POST_CHAIN_ID() {
-        throw new UnsupportedOperationException();
-    }
-
     @Accessor("targets")
     LevelTargetBundle sim_getTargets();
 

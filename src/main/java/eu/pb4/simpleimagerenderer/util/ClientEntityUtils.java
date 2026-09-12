@@ -12,6 +12,7 @@ import net.minecraft.commands.arguments.coordinates.WorldCoordinate;
 import net.minecraft.commands.arguments.coordinates.WorldCoordinates;
 import net.minecraft.commands.arguments.selector.EntitySelector;
 import net.minecraft.util.AbortableIterationConsumer;
+import net.minecraft.util.Continuation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec2;
@@ -63,11 +64,11 @@ public class ClientEntityUtils {
                     if (predicate.test(entity)) {
                         result.add(entity);
                         if (result.size() >= limit) {
-                            return AbortableIterationConsumer.Continuation.ABORT;
+                            return Continuation.ABORT;
                         }
                     }
 
-                    return AbortableIterationConsumer.Continuation.CONTINUE;
+                    return Continuation.CONTINUE;
                 });
             }
         }
@@ -75,7 +76,8 @@ public class ClientEntityUtils {
 
     public static Vec3 getPos(Vec3 position, Vec2 rotation, Coordinates coords) {
         if (coords instanceof LocalCoordinates(double left, double up, double forwards)) {
-            return Vec3.applyLocalCoordinatesToRotation(rotation, new Vec3(left, up, forwards)).add(position);
+            return new Vec3(left, up, forwards).xRot(rotation.x).yRot(rotation.y).add(position);
+            //return Vec3.applyLocalCoordinatesToRotation(rotation, new Vec3(left, up, forwards)).add(position);
         } else if (coords instanceof WorldCoordinates(WorldCoordinate x, WorldCoordinate y, WorldCoordinate z)) {
             return new Vec3(x.get(position.x), y.get(position.y), z.get(position.z));
         }

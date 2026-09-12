@@ -1,12 +1,13 @@
 package eu.pb4.simpleimagerenderer.util;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.google.common.util.concurrent.Runnables;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.textures.GpuTexture;
 import eu.pb4.simpleimagerenderer.ModInit;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,7 +24,7 @@ public class RenderUtils {
             throw new IllegalStateException("Tried to capture screenshot of an incomplete framebuffer");
         } else {
             GpuBuffer buffer = RenderSystem.getDevice().createBuffer(() -> "Screenshot buffer", 9, (long) width * height * sourceTexture.getFormat().blockSize());
-            CommandEncoder commandEncoder = RenderSystem.getDevice().createCommandEncoder();
+
             RenderSystem.getDevice()
                     .createCommandEncoder()
                     .copyTextureToBuffer(
